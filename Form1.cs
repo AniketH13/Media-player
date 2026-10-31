@@ -34,7 +34,7 @@ public enum AspectRatioMode
     Original
 }
 
-public partial class Form1 : Form
+public partial class Form1 : Form, IMessageFilter
 {
     private static readonly Color WindowColor = Color.FromArgb(17, 19, 24);
     private static readonly Color PanelColor = Color.FromArgb(24, 27, 34);
@@ -67,11 +67,13 @@ public partial class Form1 : Form
     private readonly TrackBar _seekBar;
     private readonly TrackBar _volumeBar;
     private readonly System.Windows.Forms.Timer _playbackTimer;
+    private readonly System.Windows.Forms.Timer _fullScreenTimer;
 
     private TableLayoutPanel? _rootLayout;
     private TableLayoutPanel? _headerLayout;
     private TableLayoutPanel? _contentLayout;
     private TableLayoutPanel? _playlistPanel;
+    private TableLayoutPanel? _footerPanel;
     private Panel? _videoHost;
 
     private int _currentIndex = -1;
@@ -82,8 +84,11 @@ public partial class Form1 : Form
     private TimeSpan _duration = TimeSpan.Zero;
     private AspectRatioMode _aspectRatioMode = AspectRatioMode.Auto;
 
-    // Fullscreen state
+    // Fullscreen auto-hide controls state
     private bool _isFullScreen;
+    private bool _cursorHidden;
+    private DateTime _lastActivityTime = DateTime.UtcNow;
+    private Point _lastMousePosition = Point.Empty;
     private FormWindowState _previousWindowState = FormWindowState.Normal;
     private FormBorderStyle _previousBorderStyle = FormBorderStyle.Sizable;
     private Rectangle _previousBounds;
@@ -132,6 +137,7 @@ public partial class Form1 : Form
             BeginInvoke(new Action(() => _videoContextMenu.Show(Cursor.Position)));
             e.Handled = true;
         };
+        _mediaElement.MouseMove += (s, e) => HandleMediaMouseMove();
 
         _mediaGrid = new System.Windows.Controls.Grid
         {
@@ -139,6 +145,7 @@ public partial class Form1 : Form
         };
         _mediaGrid.Children.Add(_mediaElement);
         _mediaGrid.SizeChanged += (_, _) => ApplyAspectRatio();
+        _mediaGrid.MouseMove += (s, e) => HandleMediaMouseMove();
 
         _elementHost = new ElementHost
         {
@@ -149,6 +156,7 @@ public partial class Form1 : Form
         };
         _elementHost.Resize += (_, _) => ApplyAspectRatio();
         _elementHost.DoubleClick += (_, _) => ToggleFullScreen();
+        _elementHost.MouseMove += (_, _) => OnUserActivity();
 
         _audioTitle = new Label
         {
@@ -306,6 +314,12 @@ public partial class Form1 : Form
         _playbackTimer.Tick += (_, _) => UpdatePlaybackPosition();
         _playbackTimer.Start();
 
+        _fullScreenTimer = new System.Windows.Forms.Timer { Interval = 200 };
+        _fullScreenTimer.Tick += FullScreenTimer_Tick;
+        _fullScreenTimer.Start();
+
+        Application.AddMessageFilter(this);
+
         BuildLayout();
 
         DragEnter += HandleDragEnter;
@@ -449,6 +463,8 @@ public partial class Form1 : Form
             Padding = new Padding(14, 5, 14, 5),
             Margin = Padding.Empty
         };
+        _footerPanel = footer;
+        footer.MouseMove += (_, _) => OnUserActivity();
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 26)); // Row 0: Full-width Timeline
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); // Row 1: Controls Bar
 
@@ -816,6 +832,11 @@ public partial class Form1 : Form
     // ProcessCmdKey guarantees arrow keys and shortcuts are processed before any child control captures them
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (_isFullScreen)
+        {
+            OnUserActivity();
+        }
+
         if (keyData == Keys.Left)
         {
             SeekRelative(-10);
@@ -904,9 +925,11 @@ public partial class Form1 : Form
 
         if (_headerLayout != null) _headerLayout.Visible = false;
         if (_playlistPanel != null) _playlistPanel.Visible = false;
+        if (_footerPanel != null) _footerPanel.Visible = true;
         if (_rootLayout != null)
         {
             _rootLayout.RowStyles[0].Height = 0;
+            _rootLayout.RowStyles[2].Height = 88;
             _rootLayout.Padding = new Padding(8, 0, 8, 8);
         }
         if (_contentLayout != null)
@@ -918,6 +941,10 @@ public partial class Form1 : Form
         _fullScreenButton.Invalidate();
         ResumeLayout(true);
         ApplyAspectRatio();
+
+        _lastActivityTime = DateTime.UtcNow;
+        _lastMousePosition = Cursor.Position;
+        ShowFullScreenControls();
     }
 
     private void ExitFullScreen()
@@ -926,6 +953,12 @@ public partial class Form1 : Form
 
         SuspendLayout();
         _isFullScreen = false;
+
+        if (_cursorHidden)
+        {
+            Cursor.Show();
+            _cursorHidden = false;
+        }
 
         FormBorderStyle = _previousBorderStyle;
         WindowState = _previousWindowState;
@@ -936,9 +969,11 @@ public partial class Form1 : Form
 
         if (_headerLayout != null) _headerLayout.Visible = true;
         if (_playlistPanel != null) _playlistPanel.Visible = true;
+        if (_footerPanel != null) _footerPanel.Visible = true;
         if (_rootLayout != null)
         {
             _rootLayout.RowStyles[0].Height = 56;
+            _rootLayout.RowStyles[2].Height = 88;
             _rootLayout.Padding = new Padding(18, 10, 18, 12);
         }
         if (_contentLayout != null)
@@ -950,6 +985,132 @@ public partial class Form1 : Form
         _fullScreenButton.Invalidate();
         ResumeLayout(true);
         ApplyAspectRatio();
+    }
+
+    private void HandleMediaMouseMove()
+    {
+        if (!_isFullScreen) return;
+
+        var cur = Cursor.Position;
+        if (cur != _lastMousePosition)
+        {
+            _lastMousePosition = cur;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(OnUserActivity));
+            }
+            else
+            {
+                OnUserActivity();
+            }
+        }
+    }
+
+    public bool PreFilterMessage(ref Message m)
+    {
+        if (_isFullScreen)
+        {
+            const int WM_MOUSEMOVE = 0x0200;
+            const int WM_LBUTTONDOWN = 0x0201;
+            const int WM_LBUTTONUP = 0x0202;
+            const int WM_RBUTTONDOWN = 0x0204;
+            const int WM_MBUTTONDOWN = 0x0207;
+            const int WM_MOUSEWHEEL = 0x020A;
+            const int WM_KEYDOWN = 0x0100;
+
+            if (m.Msg == WM_MOUSEMOVE)
+            {
+                var cur = Cursor.Position;
+                if (cur != _lastMousePosition)
+                {
+                    _lastMousePosition = cur;
+                    OnUserActivity();
+                }
+            }
+            else if (m.Msg == WM_LBUTTONDOWN || m.Msg == WM_LBUTTONUP ||
+                     m.Msg == WM_RBUTTONDOWN || m.Msg == WM_MBUTTONDOWN ||
+                     m.Msg == WM_MOUSEWHEEL || m.Msg == WM_KEYDOWN)
+            {
+                OnUserActivity();
+            }
+        }
+        return false;
+    }
+
+    private void OnUserActivity()
+    {
+        if (!_isFullScreen) return;
+
+        _lastActivityTime = DateTime.UtcNow;
+        ShowFullScreenControls();
+    }
+
+    private void ShowFullScreenControls()
+    {
+        if (_cursorHidden)
+        {
+            Cursor.Show();
+            _cursorHidden = false;
+        }
+
+        if (_footerPanel != null && !_footerPanel.Visible)
+        {
+            _footerPanel.Visible = true;
+            if (_rootLayout != null)
+            {
+                _rootLayout.RowStyles[2].Height = 88;
+                _rootLayout.Padding = new Padding(8, 0, 8, 8);
+            }
+            ApplyAspectRatio();
+        }
+    }
+
+    private void HideFullScreenControls()
+    {
+        if (!_isFullScreen || _isSeeking) return;
+        if (_videoContextMenu.Visible) return;
+
+        if (!_cursorHidden)
+        {
+            Cursor.Hide();
+            _cursorHidden = true;
+        }
+
+        if (_footerPanel != null && _footerPanel.Visible)
+        {
+            _footerPanel.Visible = false;
+            if (_rootLayout != null)
+            {
+                _rootLayout.RowStyles[2].Height = 0;
+                _rootLayout.Padding = Padding.Empty;
+            }
+            ApplyAspectRatio();
+        }
+    }
+
+    private void FullScreenTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_isFullScreen) return;
+        if (_isSeeking)
+        {
+            _lastActivityTime = DateTime.UtcNow;
+            return;
+        }
+
+        if ((DateTime.UtcNow - _lastActivityTime).TotalSeconds >= 2.5)
+        {
+            HideFullScreenControls();
+        }
+    }
+
+    protected override void OnDeactivate(EventArgs e)
+    {
+        base.OnDeactivate(e);
+        if (_cursorHidden)
+        {
+            Cursor.Show();
+            _cursorHidden = false;
+        }
     }
 
     private void HandleDragEnter(object? sender, DragEventArgs e)
@@ -1000,6 +1161,14 @@ public partial class Form1 : Form
 
     private void HandleFormClosed(object? sender, FormClosedEventArgs e)
     {
+        Application.RemoveMessageFilter(this);
+        _fullScreenTimer.Stop();
+        if (_cursorHidden)
+        {
+            Cursor.Show();
+            _cursorHidden = false;
+        }
+
         _playbackTimer.Stop();
         try
         {
