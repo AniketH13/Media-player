@@ -69,6 +69,15 @@ public partial class Form1 : Form, IMessageFilter
     private double _subtitleFontSize = 20.0;
     private ToolStripMenuItem? _subtitleMenu;
     private ToolStripMenuItem? _contextSubtitleMenu;
+    private readonly Dictionary<string, string> _streamTitles = new(StringComparer.OrdinalIgnoreCase);
+
+    // Video Quality Enhancer (real-time sharpening & Fant texture scaling)
+    private bool _isEnhancerEnabled;
+    private double _enhancerAmount = 0.8;
+    private VideoEnhancerEffect? _enhancerEffect;
+    private ToolStripMenuItem? _enhancerMenuItem;
+    private ToolStripMenuItem? _contextEnhancerMenuItem;
+    private ToolStripMenuItem? _enhancerLevelMenu;
     private readonly ListBox _playlist;
     private readonly Label _emptyPlaylistLabel;
     private readonly Label _trackTitle;
@@ -713,7 +722,10 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         var path = (string)_playlist.Items[index]!;
-        if (!File.Exists(path))
+        bool isNetworkUrl = path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            path.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+        if (!isNetworkUrl && !File.Exists(path))
         {
             _trackStatus.Text = "This file is no longer available";
             MessageBox.Show(this, $"The file could not be found:\n{path}", "File unavailable",
@@ -734,32 +746,55 @@ public partial class Form1 : Form, IMessageFilter
             _elapsedLabel.Text = "00:00";
             _durationLabel.Text = "00:00";
 
-            var title = Path.GetFileNameWithoutExtension(path);
-            _trackTitle.Text = title;
-            _trackStatus.Text = "Opening...";
-
-            var isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
-            if (isAudioOnly)
+            string title;
+            if (isNetworkUrl)
             {
-                _audioTitle.Text = title;
-                _audioTitle.Visible = true;
-                _audioTitle.BringToFront();
-            }
-            else
-            {
-                // For video formats (MP4, MKV, AVI, etc.), immediately surface the hardware video view
+                title = _streamTitles.TryGetValue(path, out var t) ? t : path;
+                _trackTitle.Text = title;
+                _trackStatus.Text = "Connecting stream...";
                 _audioTitle.Visible = false;
                 _elementHost.Visible = true;
                 _elementHost.BringToFront();
             }
+            else
+            {
+                title = Path.GetFileNameWithoutExtension(path);
+                _trackTitle.Text = title;
+                _trackStatus.Text = "Opening...";
+
+                var isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
+                if (isAudioOnly)
+                {
+                    _audioTitle.Text = title;
+                    _audioTitle.Visible = true;
+                    _audioTitle.BringToFront();
+                }
+                else
+                {
+                    // For video formats (MP4, MKV, AVI, etc.), immediately surface the hardware video view
+                    _audioTitle.Visible = false;
+                    _elementHost.Visible = true;
+                    _elementHost.BringToFront();
+                }
+            }
 
             // Load media directly into native Windows engine
-            _mediaElement.Source = new Uri(Path.GetFullPath(path));
+            _mediaElement.Source = isNetworkUrl ? new Uri(path) : new Uri(Path.GetFullPath(path));
             _mediaElement.Play();
-            UpdatePlayState(true, "Playing");
+            UpdatePlayState(true, isNetworkUrl ? "Streaming" : "Playing");
 
-            // Auto-detect and load subtitles for this media
-            DetectAndLoadSubtitles(path);
+            // Auto-detect and load subtitles for local media
+            if (!isNetworkUrl)
+            {
+                DetectAndLoadSubtitles(path);
+            }
+            else
+            {
+                _availableSubtitles.Clear();
+                _currentSubtitleCues.Clear();
+                _activeSubtitleTrack = -1;
+                UpdateSubtitleMenu();
+            }
         }
         catch (Exception exception)
         {
@@ -787,6 +822,7 @@ public partial class Form1 : Form, IMessageFilter
         {
             _duration = TimeSpan.Zero;
             _seekBar.Enabled = false;
+            _durationLabel.Text = "Live";
         }
 
         if (_mediaElement.NaturalVideoWidth > 0 || _mediaElement.HasVideo)
@@ -797,7 +833,11 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         ApplyAspectRatio();
-        UpdatePlayState(true, "Playing");
+        if (_isEnhancerEnabled)
+        {
+            ApplyVideoEnhancer();
+        }
+        UpdatePlayState(true, _mediaElement.NaturalDuration.HasTimeSpan ? "Playing" : "Live Stream");
     }
 
     private void MediaElement_MediaEnded(object? sender, System.Windows.RoutedEventArgs e)
@@ -1004,6 +1044,16 @@ public partial class Form1 : Form, IMessageFilter
         if (keyData == Keys.A)
         {
             CycleAspectRatio();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.U))
+        {
+            OpenNetworkStream();
+            return true;
+        }
+        if (keyData == Keys.E)
+        {
+            ToggleVideoEnhancer();
             return true;
         }
         if (keyData == Keys.V)
@@ -1313,11 +1363,26 @@ public partial class Form1 : Form, IMessageFilter
         e.Graphics.FillRectangle(background, e.Bounds);
         var titleBounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 7, e.Bounds.Width - 16, 20);
         var detailBounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 27, e.Bounds.Width - 16, 16);
-        TextRenderer.DrawText(e.Graphics, Path.GetFileNameWithoutExtension(path), Font,
+
+        string displayTitle;
+        string detail;
+        if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            displayTitle = _streamTitles.TryGetValue(path, out var t) ? t : path;
+            detail = "STREAM";
+        }
+        else
+        {
+            displayTitle = Path.GetFileNameWithoutExtension(path);
+            detail = Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+        }
+
+        TextRenderer.DrawText(e.Graphics, displayTitle, Font,
             titleBounds, selected ? Color.White : Color.FromArgb(222, 225, 233),
             TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
-        TextRenderer.DrawText(e.Graphics, Path.GetExtension(path).TrimStart('.').ToUpperInvariant(), Font,
-            detailBounds, Color.FromArgb(137, 145, 162),
+        TextRenderer.DrawText(e.Graphics, detail, Font,
+            detailBounds, detail == "STREAM" ? Color.FromArgb(103, 139, 255) : Color.FromArgb(137, 145, 162),
             TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
         e.DrawFocusRectangle();
     }
@@ -1783,11 +1848,19 @@ public partial class Form1 : Form, IMessageFilter
         }
         _videoContextMenu.Items.Add(aspectMenu);
 
+        _contextEnhancerMenuItem = new ToolStripMenuItem("Quality Enhancer (480p ➔ 720p)", null, (_, _) => ToggleVideoEnhancer())
+        {
+            ShortcutKeyDisplayString = "E",
+            Checked = _isEnhancerEnabled
+        };
+        _videoContextMenu.Items.Add(_contextEnhancerMenuItem);
+
         _contextSubtitleMenu = new ToolStripMenuItem("Subtitle");
         UpdateContextSubtitleMenu();
         _videoContextMenu.Items.Add(_contextSubtitleMenu);
 
         _videoContextMenu.Items.Add(new ToolStripSeparator());
+        _videoContextMenu.Items.Add(new ToolStripMenuItem("Open Network Stream...", null, (_, _) => OpenNetworkStream(), Keys.Control | Keys.U));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Take Screenshot (Ctrl + S)", null, (_, _) => TakeScreenshot()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Full Screen (F / F11)", null, (_, _) => ToggleFullScreen()));
     }
@@ -1830,6 +1903,7 @@ public partial class Form1 : Form, IMessageFilter
         var mediaMenu = new ToolStripMenuItem("&Media");
         mediaMenu.DropDownItems.Add(new ToolStripMenuItem("Open File(s)...", null, (_, _) => OpenFiles(), Keys.Control | Keys.O));
         mediaMenu.DropDownItems.Add(new ToolStripMenuItem("Open Folder...", null, (_, _) => OpenFolder()));
+        mediaMenu.DropDownItems.Add(new ToolStripMenuItem("Open Network Stream...", null, (_, _) => OpenNetworkStream(), Keys.Control | Keys.U));
         mediaMenu.DropDownItems.Add(new ToolStripSeparator());
         mediaMenu.DropDownItems.Add(new ToolStripMenuItem("Clear Playlist", null, (_, _) => ClearPlaylist()));
         mediaMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -1923,6 +1997,30 @@ public partial class Form1 : Form, IMessageFilter
             aspectMenu.DropDownItems.Add(item);
         }
         videoMenu.DropDownItems.Add(aspectMenu);
+        videoMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        _enhancerMenuItem = new ToolStripMenuItem("Quality Enhancer (480p ➔ 720p)", null, (_, _) => ToggleVideoEnhancer())
+        {
+            ShortcutKeyDisplayString = "E",
+            Checked = _isEnhancerEnabled
+        };
+        videoMenu.DropDownItems.Add(_enhancerMenuItem);
+
+        _enhancerLevelMenu = new ToolStripMenuItem("Enhancement Level");
+        double[] enhancerLevels = [0.5, 0.8, 1.2, 1.6];
+        string[] enhancerLabels = ["Low (Subtle 0.5)", "Medium (Balanced 0.8)", "High (Strong 1.2)", "Ultra (Crisp 1.6)"];
+        for (int i = 0; i < enhancerLevels.Length; i++)
+        {
+            double lvl = enhancerLevels[i];
+            var item = new ToolStripMenuItem(enhancerLabels[i], null, (_, _) => SetEnhancerAmount(lvl))
+            {
+                Checked = Math.Abs(_enhancerAmount - lvl) < 0.05,
+                Tag = lvl
+            };
+            _enhancerLevelMenu.DropDownItems.Add(item);
+        }
+        videoMenu.DropDownItems.Add(_enhancerLevelMenu);
+
         videoMenu.DropDownItems.Add(new ToolStripSeparator());
         videoMenu.DropDownItems.Add(new ToolStripMenuItem("Take Screenshot", null, (_, _) => TakeScreenshot(), Keys.Control | Keys.S));
         var fsVideo = new ToolStripMenuItem("Full Screen", null, (_, _) => ToggleFullScreen())
@@ -2416,6 +2514,232 @@ public partial class Form1 : Form, IMessageFilter
         StyleToolStripItems(_contextSubtitleMenu.DropDownItems);
     }
 
+    private void ApplyVideoEnhancer()
+    {
+        if (_isEnhancerEnabled)
+        {
+            int vw = _mediaElement.NaturalVideoWidth > 0 ? _mediaElement.NaturalVideoWidth : 854;
+            int vh = _mediaElement.NaturalVideoHeight > 0 ? _mediaElement.NaturalVideoHeight : 480;
+
+            _enhancerEffect = new VideoEnhancerEffect
+            {
+                Amount = _enhancerAmount,
+                VideoWidth = vw,
+                VideoHeight = vh
+            };
+            _mediaElement.Effect = _enhancerEffect;
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.Fant);
+            _trackStatus.Text = $"Quality Enhancer: Active (Level: {_enhancerAmount:0.#}x)";
+        }
+        else
+        {
+            _mediaElement.Effect = null;
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.Linear);
+            _trackStatus.Text = "Quality Enhancer: Off";
+        }
+        UpdateEnhancerMenuCheckmarks();
+    }
+
+    private void ToggleVideoEnhancer()
+    {
+        _isEnhancerEnabled = !_isEnhancerEnabled;
+        ApplyVideoEnhancer();
+    }
+
+    private void SetEnhancerAmount(double amount)
+    {
+        _enhancerAmount = amount;
+        _isEnhancerEnabled = true;
+        ApplyVideoEnhancer();
+    }
+
+    private void UpdateEnhancerMenuCheckmarks()
+    {
+        if (_enhancerMenuItem != null)
+        {
+            _enhancerMenuItem.Checked = _isEnhancerEnabled;
+        }
+        if (_contextEnhancerMenuItem != null)
+        {
+            _contextEnhancerMenuItem.Checked = _isEnhancerEnabled;
+        }
+        if (_enhancerLevelMenu != null)
+        {
+            foreach (ToolStripItem item in _enhancerLevelMenu.DropDownItems)
+            {
+                if (item is ToolStripMenuItem mi && mi.Tag is double val)
+                {
+                    mi.Checked = Math.Abs(_enhancerAmount - val) < 0.05;
+                }
+            }
+        }
+    }
+
+    private async void OpenNetworkStream()
+    {
+        string? initialUrl = null;
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                var text = Clipboard.GetText().Trim();
+                if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    initialUrl = text;
+                }
+            }
+        }
+        catch { }
+
+        using var prompt = new Form
+        {
+            Text = "Open Network Stream",
+            Width = 540,
+            Height = 220,
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            BackColor = WindowColor,
+            ForeColor = Color.FromArgb(237, 239, 244),
+            Font = new Font("Segoe UI", 9F)
+        };
+
+        var label = new Label
+        {
+            Text = "Enter a YouTube, Twitch, Kick, or direct HTTP / HLS (.m3u8, .mp4) stream URL:",
+            Dock = DockStyle.Top,
+            Height = 32,
+            Padding = new Padding(16, 12, 16, 0),
+            ForeColor = Color.FromArgb(220, 224, 235)
+        };
+        prompt.Controls.Add(label);
+
+        var urlBox = new TextBox
+        {
+            Text = initialUrl ?? string.Empty,
+            Dock = DockStyle.Top,
+            BackColor = PanelColor,
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Segoe UI", 10F),
+            Margin = new Padding(16, 8, 16, 8)
+        };
+        var boxPanel = new Panel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(16, 4, 16, 4) };
+        boxPanel.Controls.Add(urlBox);
+        prompt.Controls.Add(boxPanel);
+
+        var statusHint = new Label
+        {
+            Text = "Tip: Paste video or channel link directly. Platform streams resolve automatically.",
+            Dock = DockStyle.Top,
+            Height = 28,
+            Padding = new Padding(16, 4, 16, 0),
+            Font = new Font("Segoe UI", 8F),
+            ForeColor = Color.FromArgb(145, 152, 168)
+        };
+        prompt.Controls.Add(statusHint);
+
+        var buttonPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 48,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(12, 6, 12, 6)
+        };
+
+        var cancelBtn = MakeButton("Cancel", PanelColor, Color.FromArgb(212, 216, 226), 80);
+        cancelBtn.Click += (_, _) => prompt.DialogResult = DialogResult.Cancel;
+
+        var playBtn = MakeButton("Play", AccentColor, Color.White, 90);
+        playBtn.Click += (_, _) => prompt.DialogResult = DialogResult.OK;
+
+        buttonPanel.Controls.Add(cancelBtn);
+        buttonPanel.Controls.Add(playBtn);
+        prompt.Controls.Add(buttonPanel);
+        prompt.AcceptButton = playBtn;
+        prompt.CancelButton = cancelBtn;
+
+        if (prompt.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(urlBox.Text))
+        {
+            return;
+        }
+
+        var inputUrl = urlBox.Text.Trim();
+        await StartStreamPlaybackAsync(inputUrl);
+    }
+
+    private async Task StartStreamPlaybackAsync(string inputUrl)
+    {
+        _trackStatus.Text = "Resolving network stream...";
+
+        // Check if it's a platform URL (YouTube, Twitch, Kick) and if yt-dlp is available
+        if (StreamResolver.IsPlatformUrl(inputUrl))
+        {
+            var ytDlp = StreamResolver.FindYtDlp();
+            if (string.IsNullOrEmpty(ytDlp))
+            {
+                var ask = MessageBox.Show(this,
+                    "Streaming from YouTube, Twitch, and Kick requires the lightweight yt-dlp stream resolver.\n\n" +
+                    "Would you like to download it now automatically (~15 MB)?",
+                    "Download Stream Helper",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (ask == DialogResult.Yes)
+                {
+                    _trackStatus.Text = "Downloading yt-dlp helper...";
+                    bool ok = await StreamResolver.DownloadYtDlpAsync(this, p =>
+                    {
+                        if (InvokeRequired)
+                            BeginInvoke(new Action(() => _trackStatus.Text = $"Downloading helper: {p}%..."));
+                        else
+                            _trackStatus.Text = $"Downloading helper: {p}%...";
+                    });
+
+                    if (!ok)
+                    {
+                        _trackStatus.Text = "Failed to download stream helper";
+                        return;
+                    }
+                    _trackStatus.Text = "Helper installed! Resolving stream...";
+                }
+                else
+                {
+                    _trackStatus.Text = "Stream cancelled (helper missing)";
+                    return;
+                }
+            }
+        }
+
+        var (streamUrl, title) = await StreamResolver.ResolveStreamAsync(inputUrl, s =>
+        {
+            if (InvokeRequired)
+                BeginInvoke(new Action(() => _trackStatus.Text = s));
+            else
+                _trackStatus.Text = s;
+        });
+
+        if (string.IsNullOrEmpty(streamUrl))
+        {
+            MessageBox.Show(this, $"Could not resolve stream from URL:\n{inputUrl}\n\n{title}", "Stream Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _trackStatus.Text = "Unable to open stream";
+            return;
+        }
+
+        var displayTitle = !string.IsNullOrEmpty(title) && title != "YT_DLP_MISSING" ? title : inputUrl;
+        _streamTitles[streamUrl] = displayTitle;
+
+        _playlist.Items.Add(streamUrl);
+        _emptyPlaylistLabel.Visible = false;
+        _playlistCount.Text = $"{_playlist.Items.Count} {(_playlist.Items.Count == 1 ? "track" : "tracks")}";
+
+        PlayIndex(_playlist.Items.Count - 1);
+    }
+
     private void ShowMediaInformation()
     {
         if (_currentIndex < 0 || _currentIndex >= _playlist.Items.Count)
@@ -2477,6 +2801,8 @@ public partial class Form1 : Form, IMessageFilter
             "Up / Down\tVolume Up / Down 5%\n" +
             "M\t\tMute / Unmute\n" +
             "A\t\tCycle Aspect Ratio\n" +
+            "E\t\tToggle Quality Enhancer (480p ➔ 720p)\n" +
+            "Ctrl + U\tOpen Network Stream (YouTube, Twitch, Kick)\n" +
             "V\t\tToggle Subtitles On / Off\n" +
             "G / H\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
             "Ctrl + S\tTake Screenshot\n" +
@@ -2815,5 +3141,217 @@ public static class SubtitleParser
         var cleaned = TagRegex.Replace(raw, "");
         cleaned = System.Net.WebUtility.HtmlDecode(cleaned);
         return cleaned.Trim();
+    }
+}
+
+public class VideoEnhancerEffect : System.Windows.Media.Effects.ShaderEffect
+{
+    private static readonly System.Windows.Media.Effects.PixelShader _pixelShader;
+
+    public static readonly System.Windows.DependencyProperty InputProperty =
+        RegisterPixelShaderSamplerProperty("Input", typeof(VideoEnhancerEffect), 0);
+
+    public static readonly System.Windows.DependencyProperty AmountProperty =
+        System.Windows.DependencyProperty.Register("Amount", typeof(double), typeof(VideoEnhancerEffect),
+            new System.Windows.UIPropertyMetadata(0.8, PixelShaderConstantCallback(0)));
+
+    public static readonly System.Windows.DependencyProperty VideoWidthProperty =
+        System.Windows.DependencyProperty.Register("VideoWidth", typeof(double), typeof(VideoEnhancerEffect),
+            new System.Windows.UIPropertyMetadata(854.0, PixelShaderConstantCallback(1)));
+
+    public static readonly System.Windows.DependencyProperty VideoHeightProperty =
+        System.Windows.DependencyProperty.Register("VideoHeight", typeof(double), typeof(VideoEnhancerEffect),
+            new System.Windows.UIPropertyMetadata(480.0, PixelShaderConstantCallback(2)));
+
+    static VideoEnhancerEffect()
+    {
+        _pixelShader = new System.Windows.Media.Effects.PixelShader();
+        var rawBytes = Convert.FromBase64String("AAP///7/OQBDVEFCHAAAALUAAAAAA///BAAAABwAAAAAAQAArgAAAGwAAAACAAAAAQACAHQAAAAAAAAAhAAAAAIAAgABAAoAdAAAAAAAAACLAAAAAwAAAAEAAgCYAAAAAAAAAKgAAAACAAEAAQAGAHQAAAAAAAAAYW1vdW50AKsAAAMAAQABAAEAAAAAAAAAaGVpZ2h0AGlucHV0U2FtcGxlcgAEAAwAAQABAAEAAAAAAAAAd2lkdGgAcHNfM18wAE1pY3Jvc29mdCAoUikgSExTTCBTaGFkZXIgQ29tcGlsZXIgMTAuMQCrq6tRAAAFAwAPoAAAgD8AAAAAAACAQAAAAAAfAAACBQAAgAAAA5AfAAACAAAAkAAID6ABAAACAAABgAMAAKACAAADAAACgAAAAIABAAChBgAAAgAABIABAACgWAAABAEABIAAAFWAAwAAoAAAqoABAAACAQABgAEAqoEBAAACAQAKgAMAVaACAAADAQAPgAEA5IAAAESQQgAAAwIAD4ABAOSAAAjkoEIAAAMBAA+AAQDugAAI5KACAAADAAABgAAAAIACAAChBgAAAgAAAoACAACgWAAABAAACIAAAACAAwAAoAAAVYABAAACAAACgAAA/4EBAAACAAAFgAMAVaACAAADAAAPgAAA5IAAAESQQgAAAwMAD4AAAOSAAAjkoEIAAAMAAA+AAADugAAI5KACAAADBAAHgAAA5IADAOSAAgAAAwQAB4ACAOSABADkgAIAAAMEAAeAAQDkgAQA5IBCAAADBQAPgAAA5JAACOSgBAAABAQAB4AFAOSAAwCqoQQA5IAEAAAEBAAHgAAAAKAEAOSBBQDkgAoAAAMGAAeAAADkgAMA5IALAAADBwAHgAMA5IAAAOSACgAAAwAAB4ABAOSAAgDkgAsAAAMDAAeAAgDkgAEA5IALAAADAQAHgAcA5IADAOSACwAAAwIAB4AFAOSAAQDkgAoAAAMBAAeAAADkgAYA5IAKAAADAAAHgAEA5IAFAOSAAQAAAgAICIAFAP+ACwAAAwEAB4AEAOSAAADkgAoAAAMACAeAAgDkgAEA5ID//wAA");
+        using var stream = new MemoryStream(rawBytes);
+        _pixelShader.SetStreamSource(stream);
+    }
+
+    public VideoEnhancerEffect()
+    {
+        PixelShader = _pixelShader;
+        UpdateShaderValue(InputProperty);
+        UpdateShaderValue(AmountProperty);
+        UpdateShaderValue(VideoWidthProperty);
+        UpdateShaderValue(VideoHeightProperty);
+    }
+
+    public System.Windows.Media.Brush Input
+    {
+        get => (System.Windows.Media.Brush)GetValue(InputProperty);
+        set => SetValue(InputProperty, value);
+    }
+
+    public double Amount
+    {
+        get => (double)GetValue(AmountProperty);
+        set => SetValue(AmountProperty, value);
+    }
+
+    public double VideoWidth
+    {
+        get => (double)GetValue(VideoWidthProperty);
+        set => SetValue(VideoWidthProperty, value);
+    }
+
+    public double VideoHeight
+    {
+        get => (double)GetValue(VideoHeightProperty);
+        set => SetValue(VideoHeightProperty, value);
+    }
+}
+
+public static class StreamResolver
+{
+    private static readonly HashSet<string> PlatformDomains = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "youtube.com", "youtu.be", "twitch.tv", "kick.com", "dailymotion.com", "vimeo.com", "twitter.com", "x.com"
+    };
+
+    public static bool IsPlatformUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            var host = uri.Host.ToLowerInvariant();
+            return PlatformDomains.Any(d => host.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+        }
+        return false;
+    }
+
+    public static string? FindYtDlp()
+    {
+        var local = Path.Combine(AppContext.BaseDirectory, "yt-dlp.exe");
+        if (File.Exists(local)) return local;
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (pathEnv != null)
+        {
+            foreach (var p in pathEnv.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                try
+                {
+                    var candidate = Path.Combine(p.Trim(), "yt-dlp.exe");
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+
+    public static async Task<(string? streamUrl, string? title)> ResolveStreamAsync(string inputUrl, Action<string>? statusCallback = null)
+    {
+        if (string.IsNullOrWhiteSpace(inputUrl)) return (null, null);
+
+        if (!IsPlatformUrl(inputUrl))
+        {
+            return (inputUrl, Path.GetFileName(inputUrl));
+        }
+
+        var ytDlpPath = FindYtDlp();
+        if (string.IsNullOrEmpty(ytDlpPath))
+        {
+            return (null, "YT_DLP_MISSING");
+        }
+
+        statusCallback?.Invoke("Resolving stream with yt-dlp...");
+
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ytDlpPath,
+                Arguments = $"--no-warnings --no-check-certificates --format \"best[ext=mp4]/best\" --get-url --get-title \"{inputUrl}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return (null, null);
+
+            var outputTask = proc.StandardOutput.ReadToEndAsync();
+            var errorTask = proc.StandardError.ReadToEndAsync();
+
+            var completed = await Task.WhenAny(outputTask, Task.Delay(20000));
+            if (completed != outputTask)
+            {
+                try { proc.Kill(); } catch { }
+                return (null, "Stream resolution timed out (20s)");
+            }
+
+            var output = await outputTask;
+            await proc.WaitForExitAsync();
+
+            var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length >= 2)
+            {
+                var title = lines[0].Trim();
+                var streamUrl = lines[1].Trim();
+                return (streamUrl, title);
+            }
+            else if (lines.Length == 1 && lines[0].StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                return (lines[0].Trim(), inputUrl);
+            }
+            else if (lines.Length > 0)
+            {
+                var streamUrl = lines.LastOrDefault(l => l.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+                var title = lines.FirstOrDefault(l => !l.StartsWith("http", StringComparison.OrdinalIgnoreCase)) ?? inputUrl;
+                return (streamUrl, title);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ResolveStreamAsync error: {ex.Message}");
+            return (null, ex.Message);
+        }
+
+        return (null, "Could not resolve playable stream");
+    }
+
+    public static async Task<bool> DownloadYtDlpAsync(IWin32Window owner, Action<int>? progressCallback = null)
+    {
+        var targetPath = Path.Combine(AppContext.BaseDirectory, "yt-dlp.exe");
+        const string downloadUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+            using var response = await client.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            await using var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+            var buffer = new byte[81920];
+            var read = 0;
+            var totalRead = 0L;
+
+            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, read));
+                totalRead += read;
+                if (totalBytes > 0 && progressCallback != null)
+                {
+                    var percent = (int)(totalRead * 100 / totalBytes);
+                    progressCallback(percent);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(owner, $"Failed to download stream helper:\n\n{ex.Message}", "Download Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
     }
 }
