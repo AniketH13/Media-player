@@ -92,7 +92,7 @@ public partial class Form1 : Form
     {
         InitializeComponent();
 
-        Text = "Frame - Media Player";
+        Text = "Media Player";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(860, 560);
         ClientSize = new Size(1180, 740);
@@ -188,22 +188,23 @@ public partial class Form1 : Form
             Visible = true
         };
 
+        // Video title prominently placed at top
         _trackTitle = new Label
         {
             AutoEllipsis = true,
             Dock = DockStyle.Fill,
             ForeColor = Color.FromArgb(245, 246, 250),
-            Font = new Font("Segoe UI Semibold", 9.5F),
-            Text = "Nothing playing",
+            Font = new Font("Segoe UI Semibold", 13.5F),
+            Text = "No media loaded",
             Margin = Padding.Empty
         };
         _trackStatus = new Label
         {
             AutoEllipsis = true,
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(135, 142, 158),
-            Font = new Font("Segoe UI", 8F),
-            Text = "Open a file to get started",
+            ForeColor = Color.FromArgb(140, 148, 165),
+            Font = new Font("Segoe UI", 8.5F),
+            Text = "Open a file or drag media here to start",
             Margin = Padding.Empty
         };
 
@@ -279,7 +280,8 @@ public partial class Form1 : Form
         _playButton.Click += (_, _) => TogglePlayback();
         _toolTip.SetToolTip(_playButton, "Play (Space)");
 
-        _muteButton = MakeButton("Mute", PanelColor, Color.FromArgb(212, 216, 226), 48);
+        _muteButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 38);
+        _muteButton.Paint += MuteButton_Paint;
         _muteButton.Click += (_, _) => ToggleMute();
         _toolTip.SetToolTip(_muteButton, "Mute / Unmute (M)");
 
@@ -332,11 +334,12 @@ public partial class Form1 : Form
             RowCount = 3,
             Padding = new Padding(18, 10, 18, 12)
         };
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56)); // Top: Video Title & Open Button
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Middle: Video & Playlist
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));  // Bottom: Timeline & Controls
         Controls.Add(_rootLayout);
 
+        // TOP HEADER: Displays Video Title & Status (FRAME brand removed as requested)
         _headerLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -346,43 +349,32 @@ public partial class Form1 : Form
             Margin = Padding.Empty
         };
         _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 115));
 
-        var brand = new FlowLayoutPanel
+        var headerTitlePanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
+            ColumnCount = 1,
+            RowCount = 2,
             BackColor = WindowColor,
             Margin = Padding.Empty,
-            Padding = Padding.Empty
+            Padding = new Padding(2, 0, 8, 0)
         };
-        brand.Controls.Add(new Label
-        {
-            AutoSize = true,
-            ForeColor = Color.FromArgb(245, 246, 250),
-            Font = new Font("Segoe UI Semibold", 15F),
-            Text = "FRAME",
-            Margin = new Padding(0, 0, 0, 0)
-        });
-        brand.Controls.Add(new Label
-        {
-            AutoSize = true,
-            ForeColor = Color.FromArgb(135, 142, 158),
-            Font = new Font("Segoe UI", 8.5F),
-            Text = "A simple home for your media",
-            Margin = new Padding(0, 1, 0, 0)
-        });
-        _headerLayout.Controls.Add(brand, 0, 0);
+        headerTitlePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        headerTitlePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        headerTitlePanel.Controls.Add(_trackTitle, 0, 0);
+        headerTitlePanel.Controls.Add(_trackStatus, 0, 1);
+        _headerLayout.Controls.Add(headerTitlePanel, 0, 0);
 
-        var openButton = MakeButton("Open files", AccentColor, Color.White, 110);
+        var openButton = MakeButton("Open files", AccentColor, Color.White, 105);
         openButton.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-        openButton.Margin = new Padding(0, 4, 0, 0);
+        openButton.Margin = new Padding(0, 8, 0, 0);
         openButton.Click += (_, _) => OpenFiles();
         _toolTip.SetToolTip(openButton, "Open Media (Ctrl+O)");
         _headerLayout.Controls.Add(openButton, 1, 0);
         _rootLayout.Controls.Add(_headerLayout, 0, 0);
 
+        // MIDDLE CONTENT: Video View & Playlist
         _contentLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -447,20 +439,20 @@ public partial class Form1 : Form
         _contentLayout.Controls.Add(_playlistPanel, 1, 0);
         _rootLayout.Controls.Add(_contentLayout, 0, 1);
 
-        // --- FOOTER CONTAINER (Two strictly isolated rows: Row 0 = Timeline, Row 1 = Controls) ---
+        // BOTTOM FOOTER CONTAINER (Two strictly isolated rows: Row 0 = Timeline, Row 1 = Controls)
         var footer = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = PanelColor,
             ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(14, 6, 14, 6),
+            Padding = new Padding(14, 5, 14, 5),
             Margin = Padding.Empty
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); // Row 0: Timeline
-        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Row 1: Controls
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 26)); // Row 0: Full-width Timeline
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); // Row 1: Controls Bar
 
-        // Row 0: Full-width Timeline with Elapsed, SeekBar, and Duration side-by-side
+        // Row 0: Timeline with Elapsed, SeekBar, and Duration side-by-side
         var timeline = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -478,7 +470,7 @@ public partial class Form1 : Form
         timeline.Controls.Add(_durationLabel, 2, 0);
         footer.Controls.Add(timeline, 0, 0);
 
-        // Row 1: Controls Bar (Track Info | Centered Transport | Volume & Tools)
+        // Row 1: Controls Bar (Spacer | Centered Transport | Right-aligned Tools & Volume)
         var controlsBar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -488,28 +480,17 @@ public partial class Form1 : Form
             Margin = Padding.Empty,
             Padding = new Padding(0, 4, 0, 0)
         };
-        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
-        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        var trackInfo = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = PanelColor,
-            ColumnCount = 1,
-            RowCount = 2,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty
-        };
-        trackInfo.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        trackInfo.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        trackInfo.Controls.Add(_trackTitle, 0, 0);
-        trackInfo.Controls.Add(_trackStatus, 0, 1);
-        controlsBar.Controls.Add(trackInfo, 0, 0);
+        var leftSpacer = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor };
+        controlsBar.Controls.Add(leftSpacer, 0, 0);
 
         var transport = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             BackColor = PanelColor,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
@@ -534,7 +515,8 @@ public partial class Form1 : Form
 
         var volumeControls = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             BackColor = PanelColor,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
@@ -762,7 +744,8 @@ public partial class Form1 : Form
     {
         _isMuted = !_isMuted;
         _mediaElement.IsMuted = _isMuted;
-        _muteButton.Text = _isMuted ? "Unmute" : "Mute";
+        _toolTip.SetToolTip(_muteButton, _isMuted ? "Unmute (M)" : "Mute (M)");
+        _muteButton.Invalidate();
     }
 
     private void FinishSeeking()
@@ -955,12 +938,12 @@ public partial class Form1 : Form
         if (_playlistPanel != null) _playlistPanel.Visible = true;
         if (_rootLayout != null)
         {
-            _rootLayout.RowStyles[0].Height = 54;
+            _rootLayout.RowStyles[0].Height = 56;
             _rootLayout.Padding = new Padding(18, 10, 18, 12);
         }
         if (_contentLayout != null)
         {
-            _contentLayout.ColumnStyles[1].Width = 288;
+            _contentLayout.ColumnStyles[1].Width = 280;
         }
 
         _toolTip.SetToolTip(_fullScreenButton, "Full Screen (F / F11)");
@@ -1105,6 +1088,41 @@ public partial class Form1 : Form
             e.Graphics.DrawLines(pen, new[] { new PointF(cx + s - 4, cy - s), new PointF(cx + s, cy - s), new PointF(cx + s, cy - s + 4) });
             e.Graphics.DrawLines(pen, new[] { new PointF(cx - s + 4, cy + s), new PointF(cx - s, cy + s), new PointF(cx - s, cy + s - 4) });
             e.Graphics.DrawLines(pen, new[] { new PointF(cx + s - 4, cy + s), new PointF(cx + s, cy + s), new PointF(cx + s, cy + s - 4) });
+        }
+    }
+
+    private void MuteButton_Paint(object? sender, PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var pen = new Pen(Color.FromArgb(220, 224, 235), 1.6f);
+        using var brush = new SolidBrush(Color.FromArgb(220, 224, 235));
+
+        var cx = _muteButton.ClientSize.Width / 2f;
+        var cy = _muteButton.ClientSize.Height / 2f;
+
+        // Speaker horn
+        var pts = new[]
+        {
+            new PointF(cx - 7f, cy - 3.5f),
+            new PointF(cx - 3.5f, cy - 3.5f),
+            new PointF(cx + 0.5f, cy - 7f),
+            new PointF(cx + 0.5f, cy + 7f),
+            new PointF(cx - 3.5f, cy + 3.5f),
+            new PointF(cx - 7f, cy + 3.5f)
+        };
+        e.Graphics.FillPolygon(brush, pts);
+
+        if (_isMuted)
+        {
+            // Diagonal red slash across speaker
+            using var mutePen = new Pen(Color.FromArgb(255, 100, 100), 2f);
+            e.Graphics.DrawLine(mutePen, cx - 8f, cy + 7f, cx + 7f, cy - 7f);
+        }
+        else
+        {
+            // Sound wave arcs
+            e.Graphics.DrawArc(pen, cx + 2f, cy - 4.5f, 4f, 9f, -60, 120);
+            e.Graphics.DrawArc(pen, cx + 4.5f, cy - 7f, 6f, 14f, -60, 120);
         }
     }
 
