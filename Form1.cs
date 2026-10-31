@@ -64,8 +64,8 @@ public partial class Form1 : Form, IMessageFilter
     private readonly Button _screenshotButton;
     private readonly Button _fullScreenButton;
     private readonly ContextMenuStrip _videoContextMenu;
-    private readonly TrackBar _seekBar;
-    private readonly TrackBar _volumeBar;
+    private readonly SmoothTrackBar _seekBar;
+    private readonly SmoothTrackBar _volumeBar;
     private readonly System.Windows.Forms.Timer _playbackTimer;
     private readonly System.Windows.Forms.Timer _fullScreenTimer;
 
@@ -238,7 +238,7 @@ public partial class Form1 : Form, IMessageFilter
             Margin = new Padding(2, 2, 2, 0)
         };
 
-        _seekBar = new TrackBar
+        _seekBar = new SmoothTrackBar
         {
             Dock = DockStyle.Fill,
             Minimum = 0,
@@ -250,12 +250,26 @@ public partial class Form1 : Form, IMessageFilter
             Height = 24,
             Margin = new Padding(6, 0, 6, 0)
         };
-        _seekBar.MouseDown += (_, _) => _isSeeking = true;
+        _seekBar.MouseDown += (_, _) =>
+        {
+            if (_seekBar.Enabled)
+            {
+                _isSeeking = true;
+                UpdateSeekingPreview();
+            }
+        };
+        _seekBar.MouseMove += (_, _) =>
+        {
+            if (_isSeeking)
+            {
+                UpdateSeekingPreview();
+            }
+        };
         _seekBar.MouseUp += (_, _) => FinishSeeking();
         _seekBar.KeyUp += (_, _) => FinishSeeking();
 
         // Volume bar boosted up to 150%
-        _volumeBar = new TrackBar
+        _volumeBar = new SmoothTrackBar
         {
             Minimum = 0,
             Maximum = 150,
@@ -774,6 +788,15 @@ public partial class Form1 : Form, IMessageFilter
         _muteButton.Invalidate();
     }
 
+    private void UpdateSeekingPreview()
+    {
+        if (_duration.TotalMilliseconds > 0)
+        {
+            var targetMs = _duration.TotalMilliseconds * (_seekBar.Value / (double)_seekBar.Maximum);
+            _elapsedLabel.Text = FormatTime((long)targetMs);
+        }
+    }
+
     private void FinishSeeking()
     {
         if (!_isSeeking)
@@ -786,6 +809,13 @@ public partial class Form1 : Form, IMessageFilter
         {
             var targetMs = _duration.TotalMilliseconds * (_seekBar.Value / (double)_seekBar.Maximum);
             _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
+            _elapsedLabel.Text = FormatTime((long)targetMs);
+
+            if (!_isPlaying)
+            {
+                _mediaElement.Play();
+                _mediaElement.Pause();
+            }
         }
     }
 
@@ -1679,5 +1709,56 @@ public partial class Form1 : Form, IMessageFilter
         return time.TotalHours >= 1
             ? time.ToString(@"h\:mm\:ss")
             : time.ToString(@"m\:ss");
+    }
+}
+
+public class SmoothTrackBar : TrackBar
+{
+    private bool _isMouseDown;
+
+    public SmoothTrackBar()
+    {
+        SetStyle(ControlStyles.Selectable, true);
+    }
+
+    private void SetValueFromMouse(int mouseX)
+    {
+        const int margin = 10;
+        int usableWidth = ClientSize.Width - (2 * margin);
+        if (usableWidth <= 0) return;
+
+        int clampedX = Math.Clamp(mouseX - margin, 0, usableWidth);
+        double ratio = (double)clampedX / usableWidth;
+        int target = Minimum + (int)Math.Round(ratio * (Maximum - Minimum));
+        Value = Math.Clamp(target, Minimum, Maximum);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left && Enabled)
+        {
+            _isMouseDown = true;
+            SetValueFromMouse(e.X);
+        }
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        if (_isMouseDown && e.Button == MouseButtons.Left && Enabled)
+        {
+            SetValueFromMouse(e.X);
+        }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        if (_isMouseDown && e.Button == MouseButtons.Left)
+        {
+            SetValueFromMouse(e.X);
+            _isMouseDown = false;
+        }
+        base.OnMouseUp(e);
     }
 }
