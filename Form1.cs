@@ -110,6 +110,7 @@ public partial class Form1 : Form, IMessageFilter
     private int _currentIndex = -1;
     private bool _isPlaying;
     private bool _isSeeking;
+    private DateTime _lastScrubTime = DateTime.MinValue;
     private bool _suppressPlaylistSelection;
     private bool _isMuted;
     private TimeSpan _duration = TimeSpan.Zero;
@@ -171,7 +172,7 @@ public partial class Form1 : Form, IMessageFilter
             LoadedBehavior = WpfMediaState.Manual,
             UnloadedBehavior = WpfMediaState.Manual,
             Stretch = WpfStretch.Uniform,
-            ScrubbingEnabled = false,
+            ScrubbingEnabled = true,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             VerticalAlignment = System.Windows.VerticalAlignment.Center
         };
@@ -340,17 +341,17 @@ public partial class Form1 : Form, IMessageFilter
         };
         _seekBar.MouseDown += (_, _) =>
         {
-            if (_seekBar.Enabled)
+            if (_seekBar.Enabled && _duration.TotalMilliseconds > 0)
             {
                 _isSeeking = true;
-                UpdateSeekingPreview();
+                PerformSeek(_seekBar.Value);
             }
         };
         _seekBar.MouseMove += (_, _) =>
         {
-            if (_isSeeking)
+            if (_isSeeking && _seekBar.Enabled && _duration.TotalMilliseconds > 0)
             {
-                UpdateSeekingPreview();
+                ThrottledSeek(_seekBar.Value);
             }
         };
         _seekBar.MouseUp += (_, _) => FinishSeeking();
@@ -906,6 +907,30 @@ public partial class Form1 : Form, IMessageFilter
         }
     }
 
+    private void ThrottledSeek(int trackValue)
+    {
+        UpdateSeekingPreview();
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastScrubTime).TotalMilliseconds >= 35)
+        {
+            _lastScrubTime = now;
+            var targetMs = _duration.TotalMilliseconds * (trackValue / (double)_seekBar.Maximum);
+            _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
+            UpdateSubtitles(_mediaElement.Position);
+        }
+    }
+
+    private void PerformSeek(int trackValue)
+    {
+        if (_duration.TotalMilliseconds <= 0) return;
+
+        var targetMs = _duration.TotalMilliseconds * (trackValue / (double)_seekBar.Maximum);
+        _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
+        _elapsedLabel.Text = FormatTime((long)targetMs);
+        UpdateSubtitles(_mediaElement.Position);
+    }
+
     private void FinishSeeking()
     {
         if (!_isSeeking)
@@ -914,20 +939,7 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         _isSeeking = false;
-        if (_duration.TotalMilliseconds > 0)
-        {
-            var targetMs = _duration.TotalMilliseconds * (_seekBar.Value / (double)_seekBar.Maximum);
-            _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
-            _elapsedLabel.Text = FormatTime((long)targetMs);
-
-            UpdateSubtitles(_mediaElement.Position);
-
-            if (!_isPlaying)
-            {
-                _mediaElement.Play();
-                _mediaElement.Pause();
-            }
-        }
+        PerformSeek(_seekBar.Value);
     }
 
     private void SeekRelative(double seconds)
