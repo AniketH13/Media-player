@@ -1728,13 +1728,25 @@ public partial class Form1 : Form, IMessageFilter
 
         // 2. Playback
         var playbackMenu = new ToolStripMenuItem("&Playback");
-        playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Play / Pause", null, (_, _) => TogglePlayback(), Keys.Space));
+        var playItem = new ToolStripMenuItem("Play / Pause", null, (_, _) => TogglePlayback())
+        {
+            ShortcutKeyDisplayString = "Space"
+        };
+        playbackMenu.DropDownItems.Add(playItem);
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Stop", null, (_, _) => StopPlayback()));
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Previous", null, (_, _) => PlayIndex(_currentIndex - 1)));
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Next", null, (_, _) => PlayIndex(_currentIndex + 1)));
         playbackMenu.DropDownItems.Add(new ToolStripSeparator());
-        playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Jump Forward 10s", null, (_, _) => SeekRelative(10), Keys.Right));
-        playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Jump Backward 10s", null, (_, _) => SeekRelative(-10), Keys.Left));
+        var jumpFwd = new ToolStripMenuItem("Jump Forward 10s", null, (_, _) => SeekRelative(10))
+        {
+            ShortcutKeyDisplayString = "Right"
+        };
+        playbackMenu.DropDownItems.Add(jumpFwd);
+        var jumpBack = new ToolStripMenuItem("Jump Backward 10s", null, (_, _) => SeekRelative(-10))
+        {
+            ShortcutKeyDisplayString = "Left"
+        };
+        playbackMenu.DropDownItems.Add(jumpBack);
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Jump Forward 1 min", null, (_, _) => SeekRelative(60)));
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Jump Backward 1 min", null, (_, _) => SeekRelative(-60)));
         playbackMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -1761,9 +1773,21 @@ public partial class Form1 : Form, IMessageFilter
 
         // 3. Audio
         var audioMenu = new ToolStripMenuItem("&Audio");
-        audioMenu.DropDownItems.Add(new ToolStripMenuItem("Mute / Unmute", null, (_, _) => ToggleMute(), Keys.M));
-        audioMenu.DropDownItems.Add(new ToolStripMenuItem("Volume Up (+5%)", null, (_, _) => ChangeVolume(5), Keys.Up));
-        audioMenu.DropDownItems.Add(new ToolStripMenuItem("Volume Down (-5%)", null, (_, _) => ChangeVolume(-5), Keys.Down));
+        var muteItem = new ToolStripMenuItem("Mute / Unmute", null, (_, _) => ToggleMute())
+        {
+            ShortcutKeyDisplayString = "M"
+        };
+        audioMenu.DropDownItems.Add(muteItem);
+        var volUp = new ToolStripMenuItem("Volume Up (+5%)", null, (_, _) => ChangeVolume(5))
+        {
+            ShortcutKeyDisplayString = "Up"
+        };
+        audioMenu.DropDownItems.Add(volUp);
+        var volDown = new ToolStripMenuItem("Volume Down (-5%)", null, (_, _) => ChangeVolume(-5))
+        {
+            ShortcutKeyDisplayString = "Down"
+        };
+        audioMenu.DropDownItems.Add(volDown);
         audioMenu.DropDownItems.Add(new ToolStripSeparator());
 
         var volumeLevelsMenu = new ToolStripMenuItem("Volume Preset");
@@ -1790,7 +1814,11 @@ public partial class Form1 : Form, IMessageFilter
         videoMenu.DropDownItems.Add(aspectMenu);
         videoMenu.DropDownItems.Add(new ToolStripSeparator());
         videoMenu.DropDownItems.Add(new ToolStripMenuItem("Take Screenshot", null, (_, _) => TakeScreenshot(), Keys.Control | Keys.S));
-        videoMenu.DropDownItems.Add(new ToolStripMenuItem("Full Screen", null, (_, _) => ToggleFullScreen(), Keys.F11));
+        var fsVideo = new ToolStripMenuItem("Full Screen", null, (_, _) => ToggleFullScreen())
+        {
+            ShortcutKeyDisplayString = "F / F11"
+        };
+        videoMenu.DropDownItems.Add(fsVideo);
 
         // 5. Subtitle
         var subtitleMenu = new ToolStripMenuItem("&Subtitle");
@@ -1822,7 +1850,11 @@ public partial class Form1 : Form, IMessageFilter
             Checked = _playlistPanel?.Visible ?? true
         };
         viewMenu.DropDownItems.Add(playlistToggle);
-        viewMenu.DropDownItems.Add(new ToolStripMenuItem("Full Screen", null, (_, _) => ToggleFullScreen(), Keys.F));
+        var fsView = new ToolStripMenuItem("Full Screen", null, (_, _) => ToggleFullScreen())
+        {
+            ShortcutKeyDisplayString = "F / F11"
+        };
+        viewMenu.DropDownItems.Add(fsView);
         var alwaysOnTopItem = new ToolStripMenuItem("Always on Top", null, (s, _) =>
         {
             ToggleAlwaysOnTop();
