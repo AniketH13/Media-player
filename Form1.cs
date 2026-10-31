@@ -70,7 +70,7 @@ public partial class Form1 : Form, IMessageFilter
     private readonly System.Windows.Forms.Timer _fullScreenTimer;
 
     private TableLayoutPanel? _rootLayout;
-    private TableLayoutPanel? _headerLayout;
+    private Panel? _headerLayout;
     private TableLayoutPanel? _contentLayout;
     private TableLayoutPanel? _playlistPanel;
     private TableLayoutPanel? _footerPanel;
@@ -202,7 +202,7 @@ public partial class Form1 : Form, IMessageFilter
             AutoEllipsis = true,
             Dock = DockStyle.Fill,
             ForeColor = Color.FromArgb(245, 246, 250),
-            Font = new Font("Segoe UI Semibold", 13.5F),
+            Font = new Font("Segoe UI Semibold", 11.5F),
             Text = "No media loaded",
             Margin = Padding.Empty
         };
@@ -210,7 +210,7 @@ public partial class Form1 : Form, IMessageFilter
         {
             AutoEllipsis = true,
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(140, 148, 165),
+            ForeColor = Color.FromArgb(145, 152, 168),
             Font = new Font("Segoe UI", 8.5F),
             Text = "Open a file or drag media here to start",
             Margin = Padding.Empty
@@ -346,46 +346,50 @@ public partial class Form1 : Form, IMessageFilter
             BackColor = WindowColor,
             ColumnCount = 1,
             RowCount = 3,
-            Padding = new Padding(18, 10, 18, 12)
-        };
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56)); // Top: Video Title & Open Button
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Middle: Video & Playlist
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));  // Bottom: Timeline & Controls
-        Controls.Add(_rootLayout);
-
-        // TOP HEADER: Displays Video Title & Status (FRAME brand removed as requested)
-        _headerLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = WindowColor,
-            ColumnCount = 2,
-            RowCount = 1,
+            Padding = new Padding(16, 6, 16, 8),
             Margin = Padding.Empty
         };
-        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 115));
+        _rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54)); // Top: Video Title & Open Button
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Middle: Video & Playlist
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));  // Bottom: Timeline & Controls
+        Controls.Add(_rootLayout);
 
-        var headerTitlePanel = new TableLayoutPanel
+        // TOP HEADER: Displays Video Title & Status on left, Open files button on right
+        _headerLayout = new Panel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
             BackColor = WindowColor,
             Margin = Padding.Empty,
-            Padding = new Padding(2, 0, 8, 0)
+            Padding = new Padding(0, 2, 0, 2)
         };
-        headerTitlePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        headerTitlePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        headerTitlePanel.Controls.Add(_trackTitle, 0, 0);
-        headerTitlePanel.Controls.Add(_trackStatus, 0, 1);
-        _headerLayout.Controls.Add(headerTitlePanel, 0, 0);
 
         var openButton = MakeButton("Open files", AccentColor, Color.White, 105);
-        openButton.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-        openButton.Margin = new Padding(0, 8, 0, 0);
+        openButton.Dock = DockStyle.Right;
+        openButton.Height = 34;
+        openButton.Margin = new Padding(8, 4, 0, 4);
         openButton.Click += (_, _) => OpenFiles();
         _toolTip.SetToolTip(openButton, "Open Media (Ctrl+O)");
-        _headerLayout.Controls.Add(openButton, 1, 0);
+
+        var titlePanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = WindowColor,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 0, 16, 0)
+        };
+
+        _trackTitle.Dock = DockStyle.Top;
+        _trackTitle.Height = 24;
+        _trackStatus.Dock = DockStyle.Top;
+        _trackStatus.Height = 18;
+
+        titlePanel.Controls.Add(_trackStatus);
+        titlePanel.Controls.Add(_trackTitle);
+        _trackTitle.BringToFront();
+
+        _headerLayout.Controls.Add(titlePanel);
+        _headerLayout.Controls.Add(openButton);
         _rootLayout.Controls.Add(_headerLayout, 0, 0);
 
         // MIDDLE CONTENT: Video View & Playlist
@@ -460,13 +464,14 @@ public partial class Form1 : Form, IMessageFilter
             BackColor = PanelColor,
             ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(14, 5, 14, 5),
+            Padding = new Padding(16, 6, 16, 6),
             Margin = Padding.Empty
         };
         _footerPanel = footer;
         footer.MouseMove += (_, _) => OnUserActivity();
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 26)); // Row 0: Full-width Timeline
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); // Row 1: Controls Bar
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 30)); // Row 0: Full-width Timeline
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Row 1: Controls Bar
 
         // Row 0: Timeline with Elapsed, SeekBar, and Duration side-by-side
         var timeline = new TableLayoutPanel
@@ -478,9 +483,10 @@ public partial class Form1 : Form, IMessageFilter
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
-        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
+        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
         timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
+        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
+        timeline.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         timeline.Controls.Add(_elapsedLabel, 0, 0);
         timeline.Controls.Add(_seekBar, 1, 0);
         timeline.Controls.Add(_durationLabel, 2, 0);
@@ -494,11 +500,12 @@ public partial class Form1 : Form, IMessageFilter
             ColumnCount = 3,
             RowCount = 1,
             Margin = Padding.Empty,
-            Padding = new Padding(0, 4, 0, 0)
+            Padding = Padding.Empty
         };
         controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        controlsBar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var leftSpacer = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor };
         controlsBar.Controls.Add(leftSpacer, 0, 0);
@@ -514,15 +521,18 @@ public partial class Form1 : Form, IMessageFilter
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
-        var prevButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 38);
+        var prevButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 40);
         prevButton.Paint += (_, e) => DrawPreviousIcon(e.Graphics, prevButton.ClientSize);
         prevButton.Click += (_, _) => PlayIndex(_currentIndex - 1);
         _toolTip.SetToolTip(prevButton, "Previous");
         transport.Controls.Add(prevButton);
 
+        _playButton.Width = 52;
+        _playButton.Height = 34;
+        _playButton.Margin = new Padding(4, 3, 4, 3);
         transport.Controls.Add(_playButton);
 
-        var nextButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 38);
+        var nextButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 40);
         nextButton.Paint += (_, e) => DrawNextIcon(e.Graphics, nextButton.ClientSize);
         nextButton.Click += (_, _) => PlayIndex(_currentIndex + 1);
         _toolTip.SetToolTip(nextButton, "Next");
@@ -929,7 +939,7 @@ public partial class Form1 : Form, IMessageFilter
         if (_rootLayout != null)
         {
             _rootLayout.RowStyles[0].Height = 0;
-            _rootLayout.RowStyles[2].Height = 88;
+            _rootLayout.RowStyles[2].Height = 94;
             _rootLayout.Padding = new Padding(8, 0, 8, 8);
         }
         if (_contentLayout != null)
@@ -972,9 +982,9 @@ public partial class Form1 : Form, IMessageFilter
         if (_footerPanel != null) _footerPanel.Visible = true;
         if (_rootLayout != null)
         {
-            _rootLayout.RowStyles[0].Height = 56;
-            _rootLayout.RowStyles[2].Height = 88;
-            _rootLayout.Padding = new Padding(18, 10, 18, 12);
+            _rootLayout.RowStyles[0].Height = 54;
+            _rootLayout.RowStyles[2].Height = 94;
+            _rootLayout.Padding = new Padding(16, 6, 16, 8);
         }
         if (_contentLayout != null)
         {
@@ -1058,7 +1068,7 @@ public partial class Form1 : Form, IMessageFilter
             _footerPanel.Visible = true;
             if (_rootLayout != null)
             {
-                _rootLayout.RowStyles[2].Height = 88;
+                _rootLayout.RowStyles[2].Height = 94;
                 _rootLayout.Padding = new Padding(8, 0, 8, 8);
             }
             ApplyAspectRatio();
@@ -1361,13 +1371,13 @@ public partial class Form1 : Form, IMessageFilter
         ForeColor = foreColor,
         Text = text,
         Width = width,
-        Height = 32,
+        Height = 34,
         FlatStyle = FlatStyle.Flat,
         FlatAppearance = { BorderSize = 0 },
         Font = new Font("Segoe UI Semibold", 8.5F),
         Cursor = Cursors.Hand,
         UseVisualStyleBackColor = false,
-        Margin = new Padding(3, 0, 3, 0)
+        Margin = new Padding(3, 3, 3, 3)
     };
 
     private void ScreenshotButton_Paint(object? sender, PaintEventArgs e)
