@@ -110,6 +110,28 @@ public partial class Form1 : Form, IMessageFilter
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(860, 560);
         ClientSize = new Size(1180, 740);
+
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                Icon = new System.Drawing.Icon(iconPath);
+            }
+            else
+            {
+                var exePath = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                {
+                    var extracted = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+                    if (extracted != null) Icon = extracted;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore icon loading fallback
+        }
         BackColor = WindowColor;
         ForeColor = Color.FromArgb(237, 239, 244);
         Font = new Font("Segoe UI", 9F);

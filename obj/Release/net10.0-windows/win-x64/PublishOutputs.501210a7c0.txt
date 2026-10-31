@@ -1,4 +1,6 @@
 C:\Users\Aniket\Media player\publish-selfcontained\MediaPlayer.exe
+C:\Users\Aniket\Media player\publish-selfcontained\app.ico
+C:\Users\Aniket\Media player\publish-selfcontained\app.png
 C:\Users\Aniket\Media player\publish-selfcontained\MediaPlayer.dll
 C:\Users\Aniket\Media player\publish-selfcontained\MediaPlayer.deps.json
 C:\Users\Aniket\Media player\publish-selfcontained\MediaPlayer.runtimeconfig.json
