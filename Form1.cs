@@ -405,28 +405,13 @@ public partial class Form1 : Form, IMessageFilter
         _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));  // Bottom: Timeline & Controls
         Controls.Add(_rootLayout);
 
-        // TOP HEADER: Displays Video Title & Status on left, Open files button on right
+        // TOP HEADER: Displays Video Title & Status prominently across full width
         _headerLayout = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = WindowColor,
             Margin = Padding.Empty,
-            Padding = new Padding(0, 2, 0, 2)
-        };
-
-        var openButton = MakeButton("Open files", AccentColor, Color.White, 105);
-        openButton.Dock = DockStyle.Right;
-        openButton.Height = 34;
-        openButton.Margin = new Padding(8, 4, 0, 4);
-        openButton.Click += (_, _) => OpenFiles();
-        _toolTip.SetToolTip(openButton, "Open Media (Ctrl+O)");
-
-        var titlePanel = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = WindowColor,
-            Margin = Padding.Empty,
-            Padding = new Padding(0, 0, 16, 0)
+            Padding = new Padding(4, 2, 4, 2)
         };
 
         _trackTitle.Dock = DockStyle.Top;
@@ -434,12 +419,10 @@ public partial class Form1 : Form, IMessageFilter
         _trackStatus.Dock = DockStyle.Top;
         _trackStatus.Height = 18;
 
-        titlePanel.Controls.Add(_trackStatus);
-        titlePanel.Controls.Add(_trackTitle);
+        _headerLayout.Controls.Add(_trackStatus);
+        _headerLayout.Controls.Add(_trackTitle);
         _trackTitle.BringToFront();
 
-        _headerLayout.Controls.Add(titlePanel);
-        _headerLayout.Controls.Add(openButton);
         _rootLayout.Controls.Add(_headerLayout, 0, 0);
 
         // MIDDLE CONTENT: Video View & Playlist

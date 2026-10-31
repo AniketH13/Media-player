@@ -1,12 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "T4qOouJZigM=",
+  "dgSpecHash": "yJWZ5n63MlE=",
   "success": true,
   "projectFilePath": "C:\\Users\\Aniket\\Media player\\MediaPlayer.csproj",
-  "expectedPackageFiles": [
-    "C:\\Users\\Aniket\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\10.0.14\\microsoft.netcore.app.runtime.win-x64.10.0.14.nupkg.sha512",
-    "C:\\Users\\Aniket\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\10.0.14\\microsoft.windowsdesktop.app.runtime.win-x64.10.0.14.nupkg.sha512",
-    "C:\\Users\\Aniket\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\10.0.14\\microsoft.aspnetcore.app.runtime.win-x64.10.0.14.nupkg.sha512"
-  ],
+  "expectedPackageFiles": [],
   "logs": []
 }
