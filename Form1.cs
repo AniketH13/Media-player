@@ -191,21 +191,23 @@ public partial class Form1 : Form
         _trackTitle = new Label
         {
             AutoEllipsis = true,
-            Dock = DockStyle.Top,
-            ForeColor = Color.FromArgb(243, 244, 248),
-            Font = new Font("Segoe UI Semibold", 10F),
+            Dock = DockStyle.Fill,
+            ForeColor = Color.FromArgb(245, 246, 250),
+            Font = new Font("Segoe UI Semibold", 9.5F),
             Text = "Nothing playing",
-            Height = 25
+            Margin = Padding.Empty
         };
         _trackStatus = new Label
         {
             AutoEllipsis = true,
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(140, 148, 165),
-            Text = "Open a file to get started"
+            ForeColor = Color.FromArgb(135, 142, 158),
+            Font = new Font("Segoe UI", 8F),
+            Text = "Open a file to get started",
+            Margin = Padding.Empty
         };
 
-        // High-contrast, clear time labels with adequate width
+        // Clear, compact time labels
         _elapsedLabel = MakeTimeLabel("00:00", ContentAlignment.MiddleLeft);
         _durationLabel = MakeTimeLabel("00:00", ContentAlignment.MiddleRight);
         _playlistCount = new Label
@@ -218,12 +220,13 @@ public partial class Form1 : Form
         _volumeLabel = new Label
         {
             AutoSize = false,
-            Width = 90,
-            Height = 32,
-            ForeColor = Color.FromArgb(242, 244, 250),
+            Width = 44,
+            Height = 30,
+            ForeColor = Color.FromArgb(220, 224, 235),
             Text = "80%",
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI Semibold", 8.5F)
+            Font = new Font("Segoe UI Semibold", 8.5F),
+            Margin = new Padding(2, 2, 2, 0)
         };
 
         _seekBar = new TrackBar
@@ -235,7 +238,8 @@ public partial class Form1 : Form
             TickStyle = TickStyle.None,
             BackColor = PanelColor,
             Enabled = false,
-            Height = 32
+            Height = 24,
+            Margin = new Padding(6, 0, 6, 0)
         };
         _seekBar.MouseDown += (_, _) => _isSeeking = true;
         _seekBar.MouseUp += (_, _) => FinishSeeking();
@@ -248,46 +252,48 @@ public partial class Form1 : Form
             Maximum = 150,
             Value = 80,
             TickStyle = TickStyle.None,
-            BackColor = WindowColor,
-            Width = 100,
-            Height = 32
+            BackColor = PanelColor,
+            Width = 76,
+            Height = 24,
+            Margin = new Padding(2, 4, 2, 0)
         };
         _volumeBar.ValueChanged += (_, _) =>
         {
             _mediaElement.Volume = _volumeBar.Value / 100.0;
+            _volumeLabel.Text = $"{_volumeBar.Value}%";
             if (_volumeBar.Value > 100)
             {
-                _volumeLabel.Text = $"{_volumeBar.Value}% (Boost)";
                 _volumeLabel.ForeColor = Color.FromArgb(255, 175, 75);
+                _toolTip.SetToolTip(_volumeLabel, $"Volume: {_volumeBar.Value}% (Boosted)");
             }
             else
             {
-                _volumeLabel.Text = $"{_volumeBar.Value}%";
-                _volumeLabel.ForeColor = Color.FromArgb(242, 244, 250);
+                _volumeLabel.ForeColor = Color.FromArgb(220, 224, 235);
+                _toolTip.SetToolTip(_volumeLabel, $"Volume: {_volumeBar.Value}%");
             }
         };
         _mediaElement.Volume = _volumeBar.Value / 100.0;
 
-        _playButton = MakeButton("", AccentColor, Color.White, 64);
+        _playButton = MakeButton("", AccentColor, Color.White, 52);
         _playButton.Paint += PlayButton_Paint;
         _playButton.Click += (_, _) => TogglePlayback();
         _toolTip.SetToolTip(_playButton, "Play (Space)");
 
-        _muteButton = MakeButton("Mute", PanelColor, Color.FromArgb(212, 216, 226), 56);
+        _muteButton = MakeButton("Mute", PanelColor, Color.FromArgb(212, 216, 226), 48);
         _muteButton.Click += (_, _) => ToggleMute();
         _toolTip.SetToolTip(_muteButton, "Mute / Unmute (M)");
 
-        _aspectRatioButton = MakeButton("Fit", PanelColor, Color.FromArgb(212, 216, 226), 46);
+        _aspectRatioButton = MakeButton("Fit", PanelColor, Color.FromArgb(212, 216, 226), 42);
         _aspectRatioButton.Click += (_, _) => CycleAspectRatio();
         _aspectRatioButton.ContextMenuStrip = _videoContextMenu;
         _toolTip.SetToolTip(_aspectRatioButton, "Aspect Ratio: Auto / Fit (A)");
 
-        _screenshotButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 42);
+        _screenshotButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 36);
         _screenshotButton.Paint += ScreenshotButton_Paint;
         _screenshotButton.Click += (_, _) => TakeScreenshot();
         _toolTip.SetToolTip(_screenshotButton, "Screenshot (Ctrl + S)");
 
-        _fullScreenButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 42);
+        _fullScreenButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 36);
         _fullScreenButton.Paint += FullScreenButton_Paint;
         _fullScreenButton.Click += (_, _) => ToggleFullScreen();
         _toolTip.SetToolTip(_fullScreenButton, "Full Screen (F / F11)");
@@ -324,11 +330,11 @@ public partial class Form1 : Form
             BackColor = WindowColor,
             ColumnCount = 1,
             RowCount = 3,
-            Padding = new Padding(22, 14, 22, 18)
+            Padding = new Padding(18, 10, 18, 12)
         };
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         _rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
+        _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
         Controls.Add(_rootLayout);
 
         _headerLayout = new TableLayoutPanel
@@ -340,7 +346,7 @@ public partial class Form1 : Form
             Margin = Padding.Empty
         };
         _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
 
         var brand = new FlowLayoutPanel
         {
@@ -348,27 +354,30 @@ public partial class Form1 : Form
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             BackColor = WindowColor,
-            Padding = new Padding(0, 3, 0, 0)
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
         brand.Controls.Add(new Label
         {
             AutoSize = true,
             ForeColor = Color.FromArgb(245, 246, 250),
-            Font = new Font("Segoe UI Semibold", 17F),
-            Text = "FRAME"
+            Font = new Font("Segoe UI Semibold", 15F),
+            Text = "FRAME",
+            Margin = new Padding(0, 0, 0, 0)
         });
         brand.Controls.Add(new Label
         {
             AutoSize = true,
-            ForeColor = Color.FromArgb(132, 140, 157),
+            ForeColor = Color.FromArgb(135, 142, 158),
             Font = new Font("Segoe UI", 8.5F),
-            Text = "A simple home for your media"
+            Text = "A simple home for your media",
+            Margin = new Padding(0, 1, 0, 0)
         });
         _headerLayout.Controls.Add(brand, 0, 0);
 
-        var openButton = MakeButton("Open files", AccentColor, Color.White, 120);
+        var openButton = MakeButton("Open files", AccentColor, Color.White, 110);
         openButton.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-        openButton.Margin = new Padding(0, 8, 0, 0);
+        openButton.Margin = new Padding(0, 4, 0, 0);
         openButton.Click += (_, _) => OpenFiles();
         _toolTip.SetToolTip(openButton, "Open Media (Ctrl+O)");
         _headerLayout.Controls.Add(openButton, 1, 0);
@@ -380,16 +389,16 @@ public partial class Form1 : Form
             BackColor = WindowColor,
             ColumnCount = 2,
             RowCount = 1,
-            Margin = new Padding(0, 6, 0, 10)
+            Margin = new Padding(0, 6, 0, 8)
         };
         _contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 288));
+        _contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 280));
 
         _videoHost = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = Color.Black,
-            Margin = new Padding(0, 0, 16, 0),
+            Margin = new Padding(0, 0, 14, 0),
             ContextMenuStrip = _videoContextMenu
         };
         _videoHost.Controls.Add(_elementHost);
@@ -406,9 +415,9 @@ public partial class Form1 : Form
             BackColor = PanelColor,
             ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(14, 13, 14, 10)
+            Padding = new Padding(12, 10, 12, 8)
         };
-        _playlistPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
+        _playlistPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         _playlistPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var playlistHeader = new TableLayoutPanel
@@ -424,7 +433,7 @@ public partial class Form1 : Form
         {
             AutoSize = true,
             ForeColor = Color.FromArgb(240, 241, 246),
-            Font = new Font("Segoe UI Semibold", 11F),
+            Font = new Font("Segoe UI Semibold", 10.5F),
             Text = "Up next"
         }, 0, 0);
         playlistHeader.Controls.Add(_playlistCount, 1, 0);
@@ -438,48 +447,65 @@ public partial class Form1 : Form
         _contentLayout.Controls.Add(_playlistPanel, 1, 0);
         _rootLayout.Controls.Add(_contentLayout, 0, 1);
 
+        // --- FOOTER CONTAINER (Two strictly isolated rows: Row 0 = Timeline, Row 1 = Controls) ---
         var footer = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = PanelColor,
-            ColumnCount = 3,
+            ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(14, 7, 14, 7),
+            Padding = new Padding(14, 6, 14, 6),
             Margin = Padding.Empty
         };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 405));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); // Row 0: Timeline
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));  // Row 1: Controls
 
-        // Timeline layout: generous 85px columns for minutes and seconds so they never get cut off
+        // Row 0: Full-width Timeline with Elapsed, SeekBar, and Duration side-by-side
         var timeline = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = PanelColor,
             ColumnCount = 3,
             RowCount = 1,
-            Margin = Padding.Empty
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
-        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));
+        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
         timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));
+        timeline.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
         timeline.Controls.Add(_elapsedLabel, 0, 0);
         timeline.Controls.Add(_seekBar, 1, 0);
         timeline.Controls.Add(_durationLabel, 2, 0);
         footer.Controls.Add(timeline, 0, 0);
-        footer.SetColumnSpan(timeline, 3);
 
-        var trackInfo = new Panel
+        // Row 1: Controls Bar (Track Info | Centered Transport | Volume & Tools)
+        var controlsBar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = PanelColor,
-            Padding = new Padding(0, 5, 6, 0)
+            ColumnCount = 3,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 4, 0, 0)
         };
-        trackInfo.Controls.Add(_trackStatus);
-        trackInfo.Controls.Add(_trackTitle);
-        footer.Controls.Add(trackInfo, 0, 1);
+        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
+        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        controlsBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        var trackInfo = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = PanelColor,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        trackInfo.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        trackInfo.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        trackInfo.Controls.Add(_trackTitle, 0, 0);
+        trackInfo.Controls.Add(_trackStatus, 0, 1);
+        controlsBar.Controls.Add(trackInfo, 0, 0);
 
         var transport = new FlowLayoutPanel
         {
@@ -488,9 +514,10 @@ public partial class Form1 : Form
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             Anchor = AnchorStyles.None,
-            Padding = new Padding(0, 7, 0, 0)
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
-        var prevButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 46);
+        var prevButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 38);
         prevButton.Paint += (_, e) => DrawPreviousIcon(e.Graphics, prevButton.ClientSize);
         prevButton.Click += (_, _) => PlayIndex(_currentIndex - 1);
         _toolTip.SetToolTip(prevButton, "Previous");
@@ -498,12 +525,12 @@ public partial class Form1 : Form
 
         transport.Controls.Add(_playButton);
 
-        var nextButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 46);
+        var nextButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 38);
         nextButton.Paint += (_, e) => DrawNextIcon(e.Graphics, nextButton.ClientSize);
         nextButton.Click += (_, _) => PlayIndex(_currentIndex + 1);
         _toolTip.SetToolTip(nextButton, "Next");
         transport.Controls.Add(nextButton);
-        footer.Controls.Add(transport, 1, 1);
+        controlsBar.Controls.Add(transport, 1, 0);
 
         var volumeControls = new FlowLayoutPanel
         {
@@ -512,8 +539,8 @@ public partial class Form1 : Form
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             Anchor = AnchorStyles.Right,
-            Padding = new Padding(0, 7, 0, 0),
-            Margin = Padding.Empty
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
         volumeControls.Controls.Add(_muteButton);
         volumeControls.Controls.Add(_volumeBar);
@@ -521,8 +548,9 @@ public partial class Form1 : Form
         volumeControls.Controls.Add(_aspectRatioButton);
         volumeControls.Controls.Add(_screenshotButton);
         volumeControls.Controls.Add(_fullScreenButton);
-        footer.Controls.Add(volumeControls, 2, 1);
+        controlsBar.Controls.Add(volumeControls, 2, 0);
 
+        footer.Controls.Add(controlsBar, 0, 1);
         _rootLayout.Controls.Add(footer, 0, 2);
     }
 
@@ -927,8 +955,8 @@ public partial class Form1 : Form
         if (_playlistPanel != null) _playlistPanel.Visible = true;
         if (_rootLayout != null)
         {
-            _rootLayout.RowStyles[0].Height = 60;
-            _rootLayout.Padding = new Padding(22, 14, 22, 18);
+            _rootLayout.RowStyles[0].Height = 54;
+            _rootLayout.Padding = new Padding(18, 10, 18, 12);
         }
         if (_contentLayout != null)
         {
