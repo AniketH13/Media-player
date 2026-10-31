@@ -1161,10 +1161,11 @@ public partial class Form1 : Form
     private static Label MakeTimeLabel(string text, ContentAlignment alignment) => new()
     {
         Dock = DockStyle.Fill,
-        ForeColor = Color.FromArgb(242, 244, 250),
+        ForeColor = Color.FromArgb(205, 212, 226),
         Text = text,
         TextAlign = alignment,
-        Font = new Font("Segoe UI Semibold", 9.5F)
+        Font = new Font("Segoe UI Semibold", 8.5F),
+        Margin = Padding.Empty
     };
 
     private static Button MakeButton(string text, Color backColor, Color foreColor, int width) => new()
@@ -1173,13 +1174,13 @@ public partial class Form1 : Form
         ForeColor = foreColor,
         Text = text,
         Width = width,
-        Height = 34,
+        Height = 32,
         FlatStyle = FlatStyle.Flat,
         FlatAppearance = { BorderSize = 0 },
-        Font = new Font("Segoe UI Semibold", 9F),
+        Font = new Font("Segoe UI Semibold", 8.5F),
         Cursor = Cursors.Hand,
         UseVisualStyleBackColor = false,
-        Margin = new Padding(4, 0, 4, 0)
+        Margin = new Padding(3, 0, 3, 0)
     };
 
     private void ScreenshotButton_Paint(object? sender, PaintEventArgs e)
