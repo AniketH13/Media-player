@@ -50,12 +50,25 @@ public partial class Form1 : Form, IMessageFilter
         ".mpeg", ".mpg", ".ts", ".3gp", ".mp3", ".m4a", ".aac", ".flac",
         ".wav", ".ogg", ".opus", ".wma", ".aiff", ".alac", ".ape"
     };
+    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".srt", ".vtt", ".sub", ".ass"
+    };
 
     private readonly ToolTip _toolTip;
     private readonly MenuStrip _mainMenu;
     private readonly ElementHost _elementHost;
     private readonly System.Windows.Controls.Grid _mediaGrid;
     private readonly WpfMediaElement _mediaElement;
+    private readonly System.Windows.Controls.Border _subtitleBorder;
+    private readonly System.Windows.Controls.TextBlock _subtitleText;
+    private readonly List<string> _availableSubtitles = new();
+    private List<SubtitleCue> _currentSubtitleCues = new();
+    private int _activeSubtitleTrack = -1;
+    private TimeSpan _subtitleSyncOffset = TimeSpan.Zero;
+    private double _subtitleFontSize = 20.0;
+    private ToolStripMenuItem? _subtitleMenu;
+    private ToolStripMenuItem? _contextSubtitleMenu;
     private readonly ListBox _playlist;
     private readonly Label _emptyPlaylistLabel;
     private readonly Label _trackTitle;
@@ -176,6 +189,40 @@ public partial class Form1 : Form, IMessageFilter
             Background = System.Windows.Media.Brushes.Black
         };
         _mediaGrid.Children.Add(_mediaElement);
+
+        _subtitleText = new System.Windows.Controls.TextBlock
+        {
+            Foreground = System.Windows.Media.Brushes.White,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Arial, sans-serif"),
+            FontWeight = System.Windows.FontWeights.SemiBold,
+            FontSize = _subtitleFontSize,
+            TextAlignment = System.Windows.TextAlignment.Center,
+            TextWrapping = System.Windows.TextWrapping.Wrap,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = System.Windows.Media.Colors.Black,
+                BlurRadius = 4,
+                ShadowDepth = 1.5,
+                Opacity = 0.95
+            }
+        };
+
+        _subtitleBorder = new System.Windows.Controls.Border
+        {
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(170, 0, 0, 0)),
+            CornerRadius = new System.Windows.CornerRadius(6),
+            Padding = new System.Windows.Thickness(14, 6, 14, 6),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
+            Margin = new System.Windows.Thickness(30, 0, 30, 36),
+            Visibility = System.Windows.Visibility.Collapsed,
+            Child = _subtitleText,
+            IsHitTestVisible = false
+        };
+        _mediaGrid.Children.Add(_subtitleBorder);
+
         _mediaGrid.SizeChanged += (_, _) => ApplyAspectRatio();
         _mediaGrid.MouseMove += (s, e) => HandleMediaMouseMove();
 
@@ -356,7 +403,7 @@ public partial class Form1 : Form, IMessageFilter
 
         BuildContextMenu();
 
-        _playbackTimer = new System.Windows.Forms.Timer { Interval = 250 };
+        _playbackTimer = new System.Windows.Forms.Timer { Interval = 150 };
         _playbackTimer.Tick += (_, _) => UpdatePlaybackPosition();
         _playbackTimer.Start();
 
@@ -710,6 +757,9 @@ public partial class Form1 : Form, IMessageFilter
             _mediaElement.Source = new Uri(Path.GetFullPath(path));
             _mediaElement.Play();
             UpdatePlayState(true, "Playing");
+
+            // Auto-detect and load subtitles for this media
+            DetectAndLoadSubtitles(path);
         }
         catch (Exception exception)
         {
@@ -830,6 +880,8 @@ public partial class Form1 : Form, IMessageFilter
             _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
             _elapsedLabel.Text = FormatTime((long)targetMs);
 
+            UpdateSubtitles(_mediaElement.Position);
+
             if (!_isPlaying)
             {
                 _mediaElement.Play();
@@ -856,6 +908,7 @@ public partial class Form1 : Form, IMessageFilter
             target.TotalMilliseconds * _seekBar.Maximum / _duration.TotalMilliseconds,
             _seekBar.Minimum,
             _seekBar.Maximum);
+        UpdateSubtitles(target);
     }
 
     private void ChangeVolume(int delta)
@@ -886,6 +939,8 @@ public partial class Form1 : Form, IMessageFilter
             _seekBar.Minimum,
             _seekBar.Maximum);
         _seekBar.Value = value;
+
+        UpdateSubtitles(currentPosition);
     }
 
     // ProcessCmdKey guarantees arrow keys and shortcuts are processed before any child control captures them
@@ -949,6 +1004,21 @@ public partial class Form1 : Form, IMessageFilter
         if (keyData == Keys.A)
         {
             CycleAspectRatio();
+            return true;
+        }
+        if (keyData == Keys.V)
+        {
+            ToggleSubtitles();
+            return true;
+        }
+        if (keyData == Keys.G)
+        {
+            AdjustSubtitleSync(-0.1);
+            return true;
+        }
+        if (keyData == Keys.H)
+        {
+            AdjustSubtitleSync(0.1);
             return true;
         }
 
@@ -1185,7 +1255,39 @@ public partial class Form1 : Form, IMessageFilter
     {
         if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths)
         {
-            AddFiles(paths);
+            var mediaPaths = new List<string>();
+            var subPaths = new List<string>();
+
+            foreach (var p in paths)
+            {
+                var ext = Path.GetExtension(p);
+                if (SubtitleExtensions.Contains(ext))
+                {
+                    subPaths.Add(p);
+                }
+                else
+                {
+                    mediaPaths.Add(p);
+                }
+            }
+
+            if (subPaths.Count > 0)
+            {
+                foreach (var sub in subPaths)
+                {
+                    if (!_availableSubtitles.Contains(sub, StringComparer.OrdinalIgnoreCase))
+                    {
+                        _availableSubtitles.Insert(0, sub);
+                    }
+                }
+                LoadSubtitleTrack(0);
+                _trackStatus.Text = $"Subtitle loaded: {Path.GetFileName(subPaths[0])}";
+            }
+
+            if (mediaPaths.Count > 0)
+            {
+                AddFiles(mediaPaths);
+            }
         }
     }
 
@@ -1679,8 +1781,12 @@ public partial class Form1 : Form, IMessageFilter
             };
             aspectMenu.DropDownItems.Add(item);
         }
-
         _videoContextMenu.Items.Add(aspectMenu);
+
+        _contextSubtitleMenu = new ToolStripMenuItem("Subtitle");
+        UpdateContextSubtitleMenu();
+        _videoContextMenu.Items.Add(_contextSubtitleMenu);
+
         _videoContextMenu.Items.Add(new ToolStripSeparator());
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Take Screenshot (Ctrl + S)", null, (_, _) => TakeScreenshot()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Full Screen (F / F11)", null, (_, _) => ToggleFullScreen()));
@@ -1826,15 +1932,8 @@ public partial class Form1 : Form, IMessageFilter
         videoMenu.DropDownItems.Add(fsVideo);
 
         // 5. Subtitle
-        var subtitleMenu = new ToolStripMenuItem("&Subtitle");
-        subtitleMenu.DropDownItems.Add(new ToolStripMenuItem("Load Subtitle File (.srt, .vtt)...", null, (_, _) => LoadSubtitleFile()));
-        subtitleMenu.DropDownItems.Add(new ToolStripSeparator());
-        var subTrackMenu = new ToolStripMenuItem("Subtitle Track");
-        var subTrack1 = new ToolStripMenuItem("Track 1 (Default)", null, (_, _) => { }) { Checked = true };
-        var subDisable = new ToolStripMenuItem("Disable Subtitles", null, (_, _) => { });
-        subTrackMenu.DropDownItems.Add(subTrack1);
-        subTrackMenu.DropDownItems.Add(subDisable);
-        subtitleMenu.DropDownItems.Add(subTrackMenu);
+        _subtitleMenu = new ToolStripMenuItem("&Subtitle");
+        UpdateSubtitleMenu();
 
         // 6. Tools
         var toolsMenu = new ToolStripMenuItem("&Tools");
@@ -1880,7 +1979,7 @@ public partial class Form1 : Form, IMessageFilter
         _mainMenu.Items.Add(playbackMenu);
         _mainMenu.Items.Add(audioMenu);
         _mainMenu.Items.Add(videoMenu);
-        _mainMenu.Items.Add(subtitleMenu);
+        _mainMenu.Items.Add(_subtitleMenu);
         _mainMenu.Items.Add(toolsMenu);
         _mainMenu.Items.Add(viewMenu);
         _mainMenu.Items.Add(helpMenu);
@@ -1948,6 +2047,10 @@ public partial class Form1 : Form, IMessageFilter
         catch { }
         _seekBar.Value = 0;
         _elapsedLabel.Text = "00:00";
+        _activeSubtitleTrack = -1;
+        _currentSubtitleCues.Clear();
+        _subtitleBorder.Visibility = System.Windows.Visibility.Collapsed;
+        _subtitleText.Text = string.Empty;
         UpdatePlayState(false, "Stopped");
     }
 
@@ -1958,17 +2061,359 @@ public partial class Form1 : Form, IMessageFilter
         _trackStatus.Text = $"Speed: {speed:0.##}x";
     }
 
+    private void DetectAndLoadSubtitles(string mediaPath)
+    {
+        _availableSubtitles.Clear();
+        _currentSubtitleCues.Clear();
+        _activeSubtitleTrack = -1;
+        _subtitleSyncOffset = TimeSpan.Zero;
+
+        if (string.IsNullOrWhiteSpace(mediaPath) || !File.Exists(mediaPath))
+        {
+            UpdateSubtitleMenu();
+            return;
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(mediaPath);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+            {
+                UpdateSubtitleMenu();
+                return;
+            }
+
+            var videoBase = Path.GetFileNameWithoutExtension(mediaPath);
+            var candidates = new List<string>();
+
+            // 1. Exact match with subtitle extensions in same directory
+            foreach (var ext in SubtitleExtensions)
+            {
+                var candidate = Path.Combine(dir, videoBase + ext);
+                if (File.Exists(candidate))
+                {
+                    candidates.Add(candidate);
+                }
+            }
+
+            // 2. Language/tagged files matching videoBase.* in same directory (e.g. video.en.srt, video.eng.vtt)
+            try
+            {
+                var pattern = videoBase + ".*";
+                var matches = Directory.EnumerateFiles(dir, pattern, SearchOption.TopDirectoryOnly)
+                    .Where(f => SubtitleExtensions.Contains(Path.GetExtension(f)));
+                foreach (var match in matches)
+                {
+                    if (!candidates.Contains(match, StringComparer.OrdinalIgnoreCase))
+                    {
+                        candidates.Add(match);
+                    }
+                }
+            }
+            catch { }
+
+            // 3. Subdirectories named subs, subtitles, Subs, Subtitles
+            string[] subDirNames = ["subs", "subtitles", "Subs", "Subtitles", "sub", "Sub"];
+            foreach (var subDirName in subDirNames)
+            {
+                var subDirPath = Path.Combine(dir, subDirName);
+                if (Directory.Exists(subDirPath))
+                {
+                    try
+                    {
+                        var subMatches = Directory.EnumerateFiles(subDirPath, "*.*", SearchOption.TopDirectoryOnly)
+                            .Where(f => SubtitleExtensions.Contains(Path.GetExtension(f)));
+                        foreach (var match in subMatches)
+                        {
+                            var matchName = Path.GetFileName(match);
+                            if (matchName.StartsWith(videoBase, StringComparison.OrdinalIgnoreCase) ||
+                                !candidates.Contains(match, StringComparer.OrdinalIgnoreCase))
+                            {
+                                if (!candidates.Contains(match, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    candidates.Add(match);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 4. Fallback: if no candidates found yet, check if there are any .srt/.vtt files in the video directory
+            if (candidates.Count == 0)
+            {
+                try
+                {
+                    var anySubs = Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
+                        .Where(f => SubtitleExtensions.Contains(Path.GetExtension(f)))
+                        .Take(5);
+                    candidates.AddRange(anySubs);
+                }
+                catch { }
+            }
+
+            _availableSubtitles.AddRange(candidates.Distinct(StringComparer.OrdinalIgnoreCase));
+
+            if (_availableSubtitles.Count > 0)
+            {
+                LoadSubtitleTrack(0);
+                _trackStatus.Text = $"Subtitle detected: {Path.GetFileName(_availableSubtitles[0])}";
+            }
+            else
+            {
+                UpdateSubtitleMenu();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error detecting subtitles: {ex.Message}");
+            UpdateSubtitleMenu();
+        }
+    }
+
     private void LoadSubtitleFile()
     {
         using var dialog = new OpenFileDialog
         {
             Title = "Load Subtitle File",
-            Filter = "Subtitle files (*.srt;*.vtt;*.sub;*.ass)|*.srt;*.vtt;*.sub;*.ass|All files (*.*)|*.*"
+            Filter = "Subtitle files (*.srt;*.vtt;*.sub;*.ass)|*.srt;*.vtt;*.sub;*.ass|All files (*.*)|*.*",
+            CheckFileExists = true
         };
         if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            _trackStatus.Text = $"Subtitle loaded: {Path.GetFileName(dialog.FileName)}";
+            var path = dialog.FileName;
+            if (!_availableSubtitles.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                _availableSubtitles.Insert(0, path);
+            }
+            var idx = _availableSubtitles.FindIndex(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+            LoadSubtitleTrack(idx >= 0 ? idx : 0);
+            _trackStatus.Text = $"Subtitle loaded: {Path.GetFileName(path)}";
         }
+    }
+
+    private void LoadSubtitleTrack(int index)
+    {
+        if (index < 0 || index >= _availableSubtitles.Count)
+        {
+            DisableSubtitles();
+            return;
+        }
+
+        var path = _availableSubtitles[index];
+        _currentSubtitleCues = SubtitleParser.Parse(path);
+        _activeSubtitleTrack = index;
+        _subtitleSyncOffset = TimeSpan.Zero;
+
+        UpdateSubtitleMenu();
+        UpdateSubtitles(_mediaElement.Position);
+        _trackStatus.Text = $"Subtitle track {index + 1}: {Path.GetFileName(path)} ({_currentSubtitleCues.Count} lines)";
+    }
+
+    private void DisableSubtitles()
+    {
+        _activeSubtitleTrack = -1;
+        _currentSubtitleCues.Clear();
+        _subtitleBorder.Visibility = System.Windows.Visibility.Collapsed;
+        _subtitleText.Text = string.Empty;
+        UpdateSubtitleMenu();
+        _trackStatus.Text = "Subtitles disabled";
+    }
+
+    private void ToggleSubtitles()
+    {
+        if (_activeSubtitleTrack >= 0)
+        {
+            DisableSubtitles();
+        }
+        else if (_availableSubtitles.Count > 0)
+        {
+            LoadSubtitleTrack(0);
+        }
+        else
+        {
+            LoadSubtitleFile();
+        }
+    }
+
+    private void AdjustSubtitleSync(double deltaSeconds)
+    {
+        if (_activeSubtitleTrack < 0) return;
+        _subtitleSyncOffset = _subtitleSyncOffset.Add(TimeSpan.FromSeconds(deltaSeconds));
+        UpdateSubtitles(_mediaElement.Position);
+        UpdateSubtitleMenu();
+        var sign = _subtitleSyncOffset.TotalSeconds >= 0 ? "+" : "";
+        _trackStatus.Text = $"Subtitle Delay: {sign}{_subtitleSyncOffset.TotalSeconds:0.##}s";
+    }
+
+    private void ResetSubtitleSync()
+    {
+        _subtitleSyncOffset = TimeSpan.Zero;
+        UpdateSubtitles(_mediaElement.Position);
+        UpdateSubtitleMenu();
+        _trackStatus.Text = "Subtitle Delay reset to 0.0s";
+    }
+
+    private void SetSubtitleFontSize(double size)
+    {
+        _subtitleFontSize = size;
+        _subtitleText.FontSize = size;
+        UpdateSubtitleMenu();
+        _trackStatus.Text = $"Subtitle font size: {size} pt";
+    }
+
+    private void UpdateSubtitles(TimeSpan position)
+    {
+        if (_activeSubtitleTrack < 0 || _currentSubtitleCues.Count == 0)
+        {
+            if (_subtitleBorder.Visibility != System.Windows.Visibility.Collapsed)
+            {
+                _subtitleBorder.Visibility = System.Windows.Visibility.Collapsed;
+                _subtitleText.Text = string.Empty;
+            }
+            return;
+        }
+
+        var adjusted = position + _subtitleSyncOffset;
+        if (adjusted < TimeSpan.Zero) adjusted = TimeSpan.Zero;
+
+        var cue = _currentSubtitleCues.FirstOrDefault(c => adjusted >= c.Start && adjusted <= c.End);
+        if (cue != null)
+        {
+            if (_subtitleText.Text != cue.Text)
+            {
+                _subtitleText.Text = cue.Text;
+            }
+            if (_subtitleBorder.Visibility != System.Windows.Visibility.Visible)
+            {
+                _subtitleBorder.Visibility = System.Windows.Visibility.Visible;
+            }
+        }
+        else
+        {
+            if (_subtitleBorder.Visibility != System.Windows.Visibility.Collapsed)
+            {
+                _subtitleBorder.Visibility = System.Windows.Visibility.Collapsed;
+                _subtitleText.Text = string.Empty;
+            }
+        }
+    }
+
+    private void UpdateSubtitleMenu()
+    {
+        if (_subtitleMenu == null) return;
+
+        _subtitleMenu.DropDownItems.Clear();
+
+        var loadItem = new ToolStripMenuItem("Load Subtitle File (.srt, .vtt)...", null, (_, _) => LoadSubtitleFile());
+        _subtitleMenu.DropDownItems.Add(loadItem);
+        _subtitleMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        var tracksMenu = new ToolStripMenuItem("Subtitle Track");
+        if (_availableSubtitles.Count == 0)
+        {
+            var noSubsItem = new ToolStripMenuItem("No subtitles detected") { Enabled = false };
+            tracksMenu.DropDownItems.Add(noSubsItem);
+        }
+        else
+        {
+            for (int i = 0; i < _availableSubtitles.Count; i++)
+            {
+                int trackIdx = i;
+                var fileName = Path.GetFileName(_availableSubtitles[i]);
+                var item = new ToolStripMenuItem($"Track {trackIdx + 1}: {fileName}", null, (_, _) => LoadSubtitleTrack(trackIdx))
+                {
+                    Checked = (_activeSubtitleTrack == trackIdx)
+                };
+                tracksMenu.DropDownItems.Add(item);
+            }
+        }
+        tracksMenu.DropDownItems.Add(new ToolStripSeparator());
+        var disableItem = new ToolStripMenuItem("Disable Subtitles", null, (_, _) => DisableSubtitles())
+        {
+            Checked = (_activeSubtitleTrack == -1)
+        };
+        tracksMenu.DropDownItems.Add(disableItem);
+        _subtitleMenu.DropDownItems.Add(tracksMenu);
+
+        var syncMenu = new ToolStripMenuItem("Subtitle Sync / Delay");
+        var offsetStr = _subtitleSyncOffset.TotalSeconds == 0
+            ? "0.0s"
+            : $"{(_subtitleSyncOffset.TotalSeconds > 0 ? "+" : "")}{_subtitleSyncOffset.TotalSeconds:0.##}s";
+        syncMenu.DropDownItems.Add(new ToolStripMenuItem($"Current Delay: {offsetStr}") { Enabled = false });
+        syncMenu.DropDownItems.Add(new ToolStripSeparator());
+        syncMenu.DropDownItems.Add(new ToolStripMenuItem("Delay -0.5s", null, (_, _) => AdjustSubtitleSync(-0.5)));
+        var delayMinor = new ToolStripMenuItem("Delay -0.1s", null, (_, _) => AdjustSubtitleSync(-0.1))
+        {
+            ShortcutKeyDisplayString = "G"
+        };
+        syncMenu.DropDownItems.Add(delayMinor);
+        var advMinor = new ToolStripMenuItem("Advance +0.1s", null, (_, _) => AdjustSubtitleSync(0.1))
+        {
+            ShortcutKeyDisplayString = "H"
+        };
+        syncMenu.DropDownItems.Add(advMinor);
+        syncMenu.DropDownItems.Add(new ToolStripMenuItem("Advance +0.5s", null, (_, _) => AdjustSubtitleSync(0.5)));
+        syncMenu.DropDownItems.Add(new ToolStripSeparator());
+        syncMenu.DropDownItems.Add(new ToolStripMenuItem("Reset Delay (0s)", null, (_, _) => ResetSubtitleSync()));
+        _subtitleMenu.DropDownItems.Add(syncMenu);
+
+        var sizeMenu = new ToolStripMenuItem("Subtitle Size");
+        double[] sizes = [16.0, 20.0, 24.0, 28.0, 34.0];
+        string[] sizeLabels = ["Small (16 pt)", "Normal (20 pt)", "Large (24 pt)", "Extra Large (28 pt)", "Huge (34 pt)"];
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            double s = sizes[i];
+            var item = new ToolStripMenuItem(sizeLabels[i], null, (_, _) => SetSubtitleFontSize(s))
+            {
+                Checked = Math.Abs(_subtitleFontSize - s) < 0.1
+            };
+            sizeMenu.DropDownItems.Add(item);
+        }
+        _subtitleMenu.DropDownItems.Add(sizeMenu);
+
+        StyleToolStripItems(_subtitleMenu.DropDownItems);
+        UpdateContextSubtitleMenu();
+    }
+
+    private void UpdateContextSubtitleMenu()
+    {
+        if (_contextSubtitleMenu == null) return;
+        _contextSubtitleMenu.DropDownItems.Clear();
+
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripMenuItem("Load Subtitle File...", null, (_, _) => LoadSubtitleFile()));
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        if (_availableSubtitles.Count == 0)
+        {
+            _contextSubtitleMenu.DropDownItems.Add(new ToolStripMenuItem("No subtitles detected") { Enabled = false });
+        }
+        else
+        {
+            for (int i = 0; i < _availableSubtitles.Count; i++)
+            {
+                int trackIdx = i;
+                var fileName = Path.GetFileName(_availableSubtitles[i]);
+                var item = new ToolStripMenuItem($"Track {trackIdx + 1}: {fileName}", null, (_, _) => LoadSubtitleTrack(trackIdx))
+                {
+                    Checked = (_activeSubtitleTrack == trackIdx)
+                };
+                _contextSubtitleMenu.DropDownItems.Add(item);
+            }
+        }
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripSeparator());
+        var disableItem = new ToolStripMenuItem("Disable Subtitles", null, (_, _) => DisableSubtitles())
+        {
+            Checked = (_activeSubtitleTrack == -1)
+        };
+        _contextSubtitleMenu.DropDownItems.Add(disableItem);
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripSeparator());
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripMenuItem("Delay -0.5s", null, (_, _) => AdjustSubtitleSync(-0.5)));
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripMenuItem("Advance +0.5s", null, (_, _) => AdjustSubtitleSync(0.5)));
+        _contextSubtitleMenu.DropDownItems.Add(new ToolStripMenuItem("Reset Delay", null, (_, _) => ResetSubtitleSync()));
+
+        StyleToolStripItems(_contextSubtitleMenu.DropDownItems);
     }
 
     private void ShowMediaInformation()
@@ -2032,6 +2477,8 @@ public partial class Form1 : Form, IMessageFilter
             "Up / Down\tVolume Up / Down 5%\n" +
             "M\t\tMute / Unmute\n" +
             "A\t\tCycle Aspect Ratio\n" +
+            "V\t\tToggle Subtitles On / Off\n" +
+            "G / H\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
             "Ctrl + S\tTake Screenshot\n" +
             "Ctrl + O\tOpen Media Files\n" +
             "F / F11\t\tToggle Full Screen\n" +
@@ -2177,4 +2624,196 @@ public class DarkMenuColorTable : ProfessionalColorTable
     public override Color CheckPressedBackground => Color.FromArgb(70, 88, 130);
     public override Color SeparatorDark => Color.FromArgb(50, 56, 72);
     public override Color SeparatorLight => Color.Transparent;
+}
+
+public record SubtitleCue(TimeSpan Start, TimeSpan End, string Text);
+
+public static class SubtitleParser
+{
+    private static readonly System.Text.RegularExpressions.Regex TagRegex =
+        new(@"<[^>]+>|\{[^}]+\}", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static List<SubtitleCue> Parse(string filePath)
+    {
+        var cues = new List<SubtitleCue>();
+        if (!File.Exists(filePath)) return cues;
+
+        try
+        {
+            string[] lines;
+            try
+            {
+                lines = File.ReadAllLines(filePath, System.Text.Encoding.UTF8);
+            }
+            catch
+            {
+                lines = File.ReadAllLines(filePath);
+            }
+
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            if (ext == ".ass" || ext == ".ssa")
+            {
+                ParseAss(lines, cues);
+            }
+            else
+            {
+                ParseSrtOrVtt(lines, cues);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to parse subtitle {filePath}: {ex.Message}");
+        }
+
+        return cues.OrderBy(c => c.Start).ToList();
+    }
+
+    private static void ParseSrtOrVtt(string[] lines, List<SubtitleCue> cues)
+    {
+        TimeSpan currentStart = TimeSpan.MinValue;
+        TimeSpan currentEnd = TimeSpan.MinValue;
+        var textLines = new List<string>();
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+
+            if (line.Contains("-->"))
+            {
+                if (currentStart >= TimeSpan.Zero && currentEnd > currentStart && textLines.Count > 0)
+                {
+                    var text = CleanText(string.Join(Environment.NewLine, textLines));
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        cues.Add(new SubtitleCue(currentStart, currentEnd, text));
+                    }
+                }
+                textLines.Clear();
+
+                if (TryParseTimeRange(line, out var start, out var end))
+                {
+                    currentStart = start;
+                    currentEnd = end;
+                }
+                else
+                {
+                    currentStart = TimeSpan.MinValue;
+                    currentEnd = TimeSpan.MinValue;
+                }
+            }
+            else if (currentStart >= TimeSpan.Zero)
+            {
+                if (string.IsNullOrEmpty(line))
+                {
+                    if (currentEnd > currentStart && textLines.Count > 0)
+                    {
+                        var text = CleanText(string.Join(Environment.NewLine, textLines));
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            cues.Add(new SubtitleCue(currentStart, currentEnd, text));
+                        }
+                    }
+                    currentStart = TimeSpan.MinValue;
+                    currentEnd = TimeSpan.MinValue;
+                    textLines.Clear();
+                }
+                else
+                {
+                    textLines.Add(line);
+                }
+            }
+        }
+
+        if (currentStart >= TimeSpan.Zero && currentEnd > currentStart && textLines.Count > 0)
+        {
+            var text = CleanText(string.Join(Environment.NewLine, textLines));
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                cues.Add(new SubtitleCue(currentStart, currentEnd, text));
+            }
+        }
+    }
+
+    private static void ParseAss(string[] lines, List<SubtitleCue> cues)
+    {
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (!line.StartsWith("Dialogue:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var content = line["Dialogue:".Length..].Trim();
+            var parts = content.Split(',', 10);
+            if (parts.Length < 10) continue;
+
+            if (TryParseTimestamp(parts[1], out var start) && TryParseTimestamp(parts[2], out var end))
+            {
+                var text = parts[9].Replace(@"\N", Environment.NewLine).Replace(@"\n", Environment.NewLine);
+                text = CleanText(text);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    cues.Add(new SubtitleCue(start, end, text));
+                }
+            }
+        }
+    }
+
+    private static bool TryParseTimeRange(string line, out TimeSpan start, out TimeSpan end)
+    {
+        start = TimeSpan.Zero;
+        end = TimeSpan.Zero;
+
+        var parts = line.Split("-->", StringSplitOptions.TrimEntries);
+        if (parts.Length < 2) return false;
+
+        var startStr = parts[0];
+        var endTokens = parts[1].Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        if (endTokens.Length == 0) return false;
+        var endStr = endTokens[0];
+
+        return TryParseTimestamp(startStr, out start) && TryParseTimestamp(endStr, out end);
+    }
+
+    public static bool TryParseTimestamp(string ts, out TimeSpan time)
+    {
+        time = TimeSpan.Zero;
+        ts = ts.Trim().Replace(',', '.');
+
+        var segments = ts.Split(':');
+        try
+        {
+            if (segments.Length == 3)
+            {
+                if (double.TryParse(segments[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double hours) &&
+                    double.TryParse(segments[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double minutes) &&
+                    double.TryParse(segments[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+                {
+                    time = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes) + TimeSpan.FromSeconds(seconds);
+                    return true;
+                }
+            }
+            else if (segments.Length == 2)
+            {
+                if (double.TryParse(segments[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double minutes) &&
+                    double.TryParse(segments[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+                {
+                    time = TimeSpan.FromMinutes(minutes) + TimeSpan.FromSeconds(seconds);
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static string CleanText(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return string.Empty;
+        var cleaned = TagRegex.Replace(raw, "");
+        cleaned = System.Net.WebUtility.HtmlDecode(cleaned);
+        return cleaned.Trim();
+    }
 }
