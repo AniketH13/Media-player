@@ -481,3 +481,4 @@ C:\Users\Aniket\Media player\bin\Release\net10.0-windows\win-x64\zh-Hant\UIAutom
 C:\Users\Aniket\Media player\bin\Release\net10.0-windows\win-x64\zh-Hant\WindowsBase.resources.dll
 C:\Users\Aniket\Media player\bin\Release\net10.0-windows\win-x64\zh-Hant\WindowsFormsIntegration.resources.dll
 C:\Users\Aniket\Media player\obj\Release\net10.0-windows\win-x64\MediaPla.6A9C94CF.Up2Date
+C:\Users\Aniket\Media player\obj\Release\net10.0-windows\win-x64\MediaPlayer.sourcelink.json
