@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MediaPlayer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8884fb32871d2bf5c90b64a5dffe65be97b29fb8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5b322934c79afe9e8928a381d222bba501774f3c")]
 [assembly: System.Reflection.AssemblyProductAttribute("MediaPlayer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MediaPlayer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
