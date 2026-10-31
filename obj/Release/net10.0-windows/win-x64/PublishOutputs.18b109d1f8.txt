@@ -1,0 +1,5 @@
+C:\Users\Aniket\Media player\publish\MediaPlayer.exe
+C:\Users\Aniket\Media player\publish\MediaPlayer.dll
+C:\Users\Aniket\Media player\publish\MediaPlayer.deps.json
+C:\Users\Aniket\Media player\publish\MediaPlayer.runtimeconfig.json
+C:\Users\Aniket\Media player\publish\MediaPlayer.pdb
