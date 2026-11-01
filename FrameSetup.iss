@@ -2,7 +2,7 @@
 ; Written for Inno Setup 5 / 6
 
 #define MyAppName "Frame"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Frame"
 #define MyAppExeName "Frame.exe"
 

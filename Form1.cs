@@ -840,6 +840,7 @@ public partial class Form1 : Form, IMessageFilter
 
             // Mention video title for 5 seconds when playback starts, then auto-disappear to keep view clean
             ShowTitleHeader(startTimer: true);
+            UpdateEnhancerMenuCheckmarks();
 
             // Auto-detect and load subtitles for local media
             if (!isNetworkUrl)
@@ -894,6 +895,10 @@ public partial class Form1 : Form, IMessageFilter
         if (_isEnhancerEnabled)
         {
             ApplyVideoEnhancer();
+        }
+        else
+        {
+            UpdateEnhancerMenuCheckmarks();
         }
         UpdatePlayState(true, _mediaElement.NaturalDuration.HasTimeSpan ? "Playing" : "Live Stream");
     }
@@ -2262,6 +2267,7 @@ public partial class Form1 : Form, IMessageFilter
         Text = "Frame";
         _trackTitle.Text = "No media loaded";
         _trackStatus.Text = "Playlist cleared";
+        UpdateEnhancerMenuCheckmarks();
     }
 
     private void StopPlayback()
@@ -2643,6 +2649,40 @@ public partial class Form1 : Form, IMessageFilter
         StyleToolStripItems(_contextSubtitleMenu.DropDownItems);
     }
 
+    private string GetEnhancerMenuText()
+    {
+        int vw = _mediaElement.NaturalVideoWidth;
+        int vh = _mediaElement.NaturalVideoHeight;
+
+        // Fallback to filename cues if hardware decoder dimensions are not yet reported
+        if (vh <= 0 && _currentIndex >= 0 && _currentIndex < _playlist.Items.Count)
+        {
+            var path = (string)_playlist.Items[_currentIndex]!;
+            var fn = Path.GetFileName(path).ToLowerInvariant();
+            if (fn.Contains("2160p") || fn.Contains("4k")) { vw = 3840; vh = 2160; }
+            else if (fn.Contains("1440p") || fn.Contains("2k")) { vw = 2560; vh = 1440; }
+            else if (fn.Contains("1080p") || fn.Contains("1080i") || fn.Contains("fhd")) { vw = 1920; vh = 1080; }
+            else if (fn.Contains("720p") || fn.Contains("hd")) { vw = 1280; vh = 720; }
+            else if (fn.Contains("480p")) { vw = 854; vh = 480; }
+            else if (fn.Contains("360p")) { vw = 640; vh = 360; }
+        }
+
+        if (vh >= 2000 || vw >= 3500)
+            return "Quality Enhancer (4K ➔ 8K UHD)";
+        if (vh >= 1300 || vw >= 2400)
+            return "Quality Enhancer (1440p 2K ➔ 4K UHD)";
+        if (vh >= 900 || vw >= 1600)
+            return "Quality Enhancer (1080p ➔ 2K QHD)";
+        if (vh >= 650 || vw >= 1100)
+            return "Quality Enhancer (720p ➔ 1080p FHD)";
+        if (vh >= 400 || vw >= 700)
+            return "Quality Enhancer (480p ➔ 720p HD)";
+        if (vh > 0)
+            return $"Quality Enhancer ({vh}p ➔ Enhanced HD)";
+
+        return "Quality Enhancer (Auto Resolution)";
+    }
+
     private void ApplyVideoEnhancer()
     {
         if (_isEnhancerEnabled)
@@ -2658,7 +2698,9 @@ public partial class Form1 : Form, IMessageFilter
             };
             _mediaElement.Effect = _enhancerEffect;
             System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.Fant);
-            _trackStatus.Text = $"Quality Enhancer: Active (Level: {_enhancerAmount:0.#}x)";
+
+            var resDesc = vh >= 900 ? "1080p ➔ 2K" : (vh >= 650 ? "720p ➔ 1080p" : "480p ➔ 720p");
+            _trackStatus.Text = $"Quality Enhancer: Active ({resDesc}, Level: {_enhancerAmount:0.#}x)";
         }
         else
         {
@@ -2684,12 +2726,15 @@ public partial class Form1 : Form, IMessageFilter
 
     private void UpdateEnhancerMenuCheckmarks()
     {
+        var text = GetEnhancerMenuText();
         if (_enhancerMenuItem != null)
         {
+            _enhancerMenuItem.Text = text;
             _enhancerMenuItem.Checked = _isEnhancerEnabled;
         }
         if (_contextEnhancerMenuItem != null)
         {
+            _contextEnhancerMenuItem.Text = text;
             _contextEnhancerMenuItem.Checked = _isEnhancerEnabled;
         }
         if (_enhancerLevelMenu != null)
@@ -2986,7 +3031,7 @@ public partial class Form1 : Form, IMessageFilter
             "Up / Down\tVolume Up / Down 5%\n" +
             "M\t\tMute / Unmute\n" +
             "A\t\tCycle Aspect Ratio\n" +
-            "E\t\tToggle Quality Enhancer (480p ➔ 720p)\n" +
+            "E\t\tToggle Video Quality Enhancer\n" +
             "Ctrl + U\tOpen Network Stream (YouTube, Twitch, Kick)\n" +
             "V\t\tToggle Subtitles On / Off\n" +
             "G / H\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
