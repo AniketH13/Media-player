@@ -906,6 +906,7 @@ public partial class Form1 : Form, IMessageFilter
         }
         UpdatePlayState(true, _mediaElement.NaturalDuration.HasTimeSpan ? "Playing" : "Live Stream");
         OptimizeMemory();
+        TriggerDelayedMemoryOptimization();
     }
 
     private void MediaElement_MediaEnded(object? sender, System.Windows.RoutedEventArgs e)
@@ -1085,8 +1086,8 @@ public partial class Form1 : Form, IMessageFilter
 
         UpdateSubtitles(currentPosition);
 
-        // Periodic working set trim every ~30 seconds of playback to keep RAM low
-        if (++_trimTimerCounter >= 200)
+        // Periodic working set trim every ~10 seconds of playback to keep RAM minimal
+        if (++_trimTimerCounter >= 70)
         {
             _trimTimerCounter = 0;
             OptimizeMemory();
@@ -3056,16 +3057,31 @@ public partial class Form1 : Form, IMessageFilter
     [System.Runtime.InteropServices.DllImport("psapi.dll")]
     private static extern int EmptyWorkingSet(IntPtr hwProc);
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
+
     private static void OptimizeMemory()
     {
         try
         {
-            GC.Collect(1, GCCollectionMode.Optimized, false);
+            GC.Collect(2, GCCollectionMode.Aggressive, false, false);
+            GC.WaitForPendingFinalizers();
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
                 using var proc = System.Diagnostics.Process.GetCurrentProcess();
+                SetProcessWorkingSetSize(proc.Handle, (IntPtr)(-1), (IntPtr)(-1));
                 EmptyWorkingSet(proc.Handle);
             }
+        }
+        catch { }
+    }
+
+    private async void TriggerDelayedMemoryOptimization()
+    {
+        try
+        {
+            await Task.Delay(1500);
+            OptimizeMemory();
         }
         catch { }
     }
