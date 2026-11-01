@@ -92,6 +92,8 @@ public partial class Form1 : Form, IMessageFilter
     private readonly Button _aspectRatioButton;
     private readonly Button _screenshotButton;
     private readonly Button _fullScreenButton;
+    private readonly Button _playlistToggleButton;
+    private bool _isPlaylistVisible = true;
     private readonly ContextMenuStrip _videoContextMenu;
     private readonly SmoothTrackBar _seekBar;
     private readonly SmoothTrackBar _volumeBar;
@@ -396,6 +398,11 @@ public partial class Form1 : Form, IMessageFilter
         _muteButton.Click += (_, _) => ToggleMute();
         _toolTip.SetToolTip(_muteButton, "Mute / Unmute (M)");
 
+        _playlistToggleButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 36);
+        _playlistToggleButton.Paint += PlaylistButton_Paint;
+        _playlistToggleButton.Click += (_, _) => TogglePlaylistPanel();
+        _toolTip.SetToolTip(_playlistToggleButton, "Toggle Up next / Playlist (P)");
+
         _aspectRatioButton = MakeButton("Fit", PanelColor, Color.FromArgb(212, 216, 226), 42);
         _aspectRatioButton.Click += (_, _) => CycleAspectRatio();
         _aspectRatioButton.ContextMenuStrip = _videoContextMenu;
@@ -524,10 +531,11 @@ public partial class Form1 : Form, IMessageFilter
         {
             Dock = DockStyle.Fill,
             BackColor = PanelColor,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1
         };
         playlistHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        playlistHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         playlistHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         playlistHeader.Controls.Add(new Label
         {
@@ -537,6 +545,23 @@ public partial class Form1 : Form, IMessageFilter
             Text = "Up next"
         }, 0, 0);
         playlistHeader.Controls.Add(_playlistCount, 1, 0);
+
+        var closePlaylistButton = new Button
+        {
+            Text = "✕",
+            Font = new Font("Segoe UI", 7.5F),
+            ForeColor = Color.FromArgb(160, 168, 185),
+            BackColor = Color.Transparent,
+            FlatStyle = FlatStyle.Flat,
+            FlatAppearance = { BorderSize = 0, MouseOverBackColor = Color.FromArgb(38, 44, 56) },
+            Size = new Size(22, 22),
+            Cursor = Cursors.Hand,
+            Margin = new Padding(6, 2, 0, 0)
+        };
+        closePlaylistButton.Click += (_, _) => SetPlaylistVisibility(false);
+        _toolTip.SetToolTip(closePlaylistButton, "Hide Up next (P)");
+        playlistHeader.Controls.Add(closePlaylistButton, 2, 0);
+
         _playlistPanel.Controls.Add(playlistHeader, 0, 0);
 
         var playlistHost = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor };
@@ -643,6 +668,7 @@ public partial class Form1 : Form, IMessageFilter
         volumeControls.Controls.Add(_muteButton);
         volumeControls.Controls.Add(_volumeBar);
         volumeControls.Controls.Add(_volumeLabel);
+        volumeControls.Controls.Add(_playlistToggleButton);
         volumeControls.Controls.Add(_aspectRatioButton);
         volumeControls.Controls.Add(_screenshotButton);
         volumeControls.Controls.Add(_fullScreenButton);
@@ -748,6 +774,7 @@ public partial class Form1 : Form, IMessageFilter
             _durationLabel.Text = "00:00";
 
             string title;
+            bool isAudioOnly = false;
             if (isNetworkUrl)
             {
                 title = _streamTitles.TryGetValue(path, out var t) ? t : path;
@@ -763,7 +790,7 @@ public partial class Form1 : Form, IMessageFilter
                 _trackTitle.Text = title;
                 _trackStatus.Text = "Opening...";
 
-                var isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
+                isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
                 if (isAudioOnly)
                 {
                     _audioTitle.Text = title;
@@ -777,6 +804,12 @@ public partial class Form1 : Form, IMessageFilter
                     _elementHost.Visible = true;
                     _elementHost.BringToFront();
                 }
+            }
+
+            // Auto-hide playlist sidebar when video playback starts
+            if (!isAudioOnly)
+            {
+                SetPlaylistVisibility(false);
             }
 
             // Load media directly into native Windows engine
@@ -1053,6 +1086,11 @@ public partial class Form1 : Form, IMessageFilter
             ToggleMute();
             return true;
         }
+        if (keyData == Keys.P)
+        {
+            TogglePlaylistPanel();
+            return true;
+        }
         if (keyData == Keys.A)
         {
             CycleAspectRatio();
@@ -1128,6 +1166,10 @@ public partial class Form1 : Form, IMessageFilter
         {
             _contentLayout.ColumnStyles[1].Width = 0;
         }
+        if (_videoHost != null)
+        {
+            _videoHost.Margin = Padding.Empty;
+        }
 
         _toolTip.SetToolTip(_fullScreenButton, "Exit Full Screen (Esc / F11)");
         _fullScreenButton.Invalidate();
@@ -1161,7 +1203,6 @@ public partial class Form1 : Form, IMessageFilter
 
         if (_mainMenu != null) _mainMenu.Visible = true;
         if (_headerLayout != null) _headerLayout.Visible = true;
-        if (_playlistPanel != null) _playlistPanel.Visible = true;
         if (_footerPanel != null) _footerPanel.Visible = true;
         if (_rootLayout != null)
         {
@@ -1169,10 +1210,7 @@ public partial class Form1 : Form, IMessageFilter
             _rootLayout.RowStyles[2].Height = 94;
             _rootLayout.Padding = new Padding(16, 6, 16, 8);
         }
-        if (_contentLayout != null)
-        {
-            _contentLayout.ColumnStyles[1].Width = 280;
-        }
+        SetPlaylistVisibility(_isPlaylistVisible);
 
         _toolTip.SetToolTip(_fullScreenButton, "Full Screen (F / F11)");
         _fullScreenButton.Invalidate();
@@ -1498,6 +1536,22 @@ public partial class Form1 : Form, IMessageFilter
             e.Graphics.DrawLines(pen, new[] { new PointF(cx - s + 4, cy + s), new PointF(cx - s, cy + s), new PointF(cx - s, cy + s - 4) });
             e.Graphics.DrawLines(pen, new[] { new PointF(cx + s - 4, cy + s), new PointF(cx + s, cy + s), new PointF(cx + s, cy + s - 4) });
         }
+    }
+
+    private void PlaylistButton_Paint(object? sender, PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        bool visible = _isPlaylistVisible && (_playlistPanel?.Visible ?? false);
+        using var pen = new Pen(visible ? AccentColor : Color.FromArgb(220, 224, 235), 1.8f);
+
+        var cx = _playlistToggleButton.ClientSize.Width / 2f;
+        var cy = _playlistToggleButton.ClientSize.Height / 2f;
+
+        float barWidth = 14f;
+        float left = cx - (barWidth / 2f);
+        e.Graphics.DrawLine(pen, left, cy - 5f, left + barWidth, cy - 5f);
+        e.Graphics.DrawLine(pen, left, cy, left + barWidth, cy);
+        e.Graphics.DrawLine(pen, left, cy + 5f, left + barWidth, cy + 5f);
     }
 
     private void MuteButton_Paint(object? sender, PaintEventArgs e)
@@ -1872,6 +1926,7 @@ public partial class Form1 : Form, IMessageFilter
         _videoContextMenu.Items.Add(_contextSubtitleMenu);
 
         _videoContextMenu.Items.Add(new ToolStripSeparator());
+        _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Up next / Playlist (P)", null, (_, _) => TogglePlaylistPanel()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Open Network Stream...", null, (_, _) => OpenNetworkStream(), Keys.Control | Keys.U));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Take Screenshot (Ctrl + S)", null, (_, _) => TakeScreenshot()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Full Screen (F / F11)", null, (_, _) => ToggleFullScreen()));
@@ -2790,12 +2845,37 @@ public partial class Form1 : Form, IMessageFilter
         }
     }
 
-    private void TogglePlaylistPanel()
+    private void SetPlaylistVisibility(bool visible)
     {
+        _isPlaylistVisible = visible;
         if (_playlistPanel == null || _contentLayout == null) return;
-        bool visible = !_playlistPanel.Visible;
+
         _playlistPanel.Visible = visible;
         _contentLayout.ColumnStyles[1].Width = visible ? 280 : 0;
+        if (_videoHost != null)
+        {
+            _videoHost.Margin = visible ? new Padding(0, 0, 14, 0) : Padding.Empty;
+        }
+
+        if (_playlistToggleButton != null)
+        {
+            _playlistToggleButton.BackColor = visible ? Color.FromArgb(48, 57, 78) : PanelColor;
+            _toolTip.SetToolTip(_playlistToggleButton, visible ? "Hide Up next / Playlist (P)" : "Show Up next / Playlist (P)");
+            _playlistToggleButton.Invalidate();
+        }
+
+        if (_mainMenu != null && _mainMenu.Items.Count > 6 && _mainMenu.Items[6] is ToolStripMenuItem viewMenu &&
+            viewMenu.DropDownItems.Count > 0 && viewMenu.DropDownItems[0] is ToolStripMenuItem mi)
+        {
+            mi.Checked = visible;
+        }
+
+        ApplyAspectRatio();
+    }
+
+    private void TogglePlaylistPanel()
+    {
+        SetPlaylistVisibility(!_isPlaylistVisible);
     }
 
     private void ToggleAlwaysOnTop()
@@ -2818,6 +2898,7 @@ public partial class Form1 : Form, IMessageFilter
             "V\t\tToggle Subtitles On / Off\n" +
             "G / H\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
             "Ctrl + S\tTake Screenshot\n" +
+            "P\t\tToggle Up Next / Playlist Sidebar\n" +
             "Ctrl + O\tOpen Media Files\n" +
             "F / F11\t\tToggle Full Screen\n" +
             "Esc\t\tExit Full Screen";
