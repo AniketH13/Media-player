@@ -1,4 +1,4 @@
-﻿namespace MediaPlayer;
+namespace Frame;
 
 partial class Form1
 {

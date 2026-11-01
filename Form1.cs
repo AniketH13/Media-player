@@ -21,7 +21,7 @@ using CopyPixelOperation = System.Drawing.CopyPixelOperation;
 using ImageFormat = System.Drawing.Imaging.ImageFormat;
 using SmoothingMode = System.Drawing.Drawing2D.SmoothingMode;
 
-namespace MediaPlayer;
+namespace Frame;
 
 public enum AspectRatioMode
 {
@@ -112,6 +112,8 @@ public partial class Form1 : Form, IMessageFilter
     private int _currentIndex = -1;
     private bool _isPlaying;
     private bool _isSeeking;
+    private bool _wasPlayingBeforeSeek;
+    private double _lastSeekMs = -1;
     private DateTime _lastScrubTime = DateTime.MinValue;
     private bool _suppressPlaylistSelection;
     private bool _isMuted;
@@ -131,7 +133,7 @@ public partial class Form1 : Form, IMessageFilter
     {
         InitializeComponent();
 
-        Text = "Media Player";
+        Text = "Frame";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(860, 560);
         ClientSize = new Size(1180, 740);
@@ -346,6 +348,11 @@ public partial class Form1 : Form, IMessageFilter
             if (_seekBar.Enabled && _duration.TotalMilliseconds > 0)
             {
                 _isSeeking = true;
+                _wasPlayingBeforeSeek = _isPlaying;
+                if (_isPlaying)
+                {
+                    _mediaElement.Pause();
+                }
                 PerformSeek(_seekBar.Value);
             }
         };
@@ -779,6 +786,7 @@ public partial class Form1 : Form, IMessageFilter
             {
                 title = _streamTitles.TryGetValue(path, out var t) ? t : path;
                 _trackTitle.Text = title;
+                Text = $"{title} - Frame";
                 _trackStatus.Text = "Connecting stream...";
                 _audioTitle.Visible = false;
                 _elementHost.Visible = true;
@@ -788,6 +796,7 @@ public partial class Form1 : Form, IMessageFilter
             {
                 title = Path.GetFileNameWithoutExtension(path);
                 _trackTitle.Text = title;
+                Text = $"{title} - Frame";
                 _trackStatus.Text = "Opening...";
 
                 isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
@@ -942,15 +951,19 @@ public partial class Form1 : Form, IMessageFilter
 
     private void ThrottledSeek(int trackValue)
     {
-        UpdateSeekingPreview();
+        if (_duration.TotalMilliseconds <= 0) return;
 
+        // Instant visual update of current scrub position (0ms delay)
+        var targetMs = _duration.TotalMilliseconds * (trackValue / (double)_seekBar.Maximum);
+        _elapsedLabel.Text = FormatTime((long)targetMs);
+
+        // Throttle decoder hardware seek to prevent audio/video pipeline lockup
         var now = DateTime.UtcNow;
-        if ((now - _lastScrubTime).TotalMilliseconds >= 35)
+        if ((now - _lastScrubTime).TotalMilliseconds >= 60 && Math.Abs(targetMs - _lastSeekMs) >= 150)
         {
             _lastScrubTime = now;
-            var targetMs = _duration.TotalMilliseconds * (trackValue / (double)_seekBar.Maximum);
+            _lastSeekMs = targetMs;
             _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
-            UpdateSubtitles(_mediaElement.Position);
         }
     }
 
@@ -959,6 +972,8 @@ public partial class Form1 : Form, IMessageFilter
         if (_duration.TotalMilliseconds <= 0) return;
 
         var targetMs = _duration.TotalMilliseconds * (trackValue / (double)_seekBar.Maximum);
+        _lastScrubTime = DateTime.UtcNow;
+        _lastSeekMs = targetMs;
         _mediaElement.Position = TimeSpan.FromMilliseconds(targetMs);
         _elapsedLabel.Text = FormatTime((long)targetMs);
         UpdateSubtitles(_mediaElement.Position);
@@ -973,6 +988,12 @@ public partial class Form1 : Form, IMessageFilter
 
         _isSeeking = false;
         PerformSeek(_seekBar.Value);
+
+        if (_wasPlayingBeforeSeek)
+        {
+            _mediaElement.Play();
+            UpdatePlayState(true, "Playing");
+        }
     }
 
     private void SeekRelative(double seconds)
@@ -2138,7 +2159,7 @@ public partial class Form1 : Form, IMessageFilter
         var helpMenu = new ToolStripMenuItem("&Help");
         helpMenu.DropDownItems.Add(new ToolStripMenuItem("Keyboard Shortcuts", null, (_, _) => ShowShortcutsHelp()));
         helpMenu.DropDownItems.Add(new ToolStripSeparator());
-        helpMenu.DropDownItems.Add(new ToolStripMenuItem("About Media Player", null, (_, _) => ShowAboutDialog()));
+        helpMenu.DropDownItems.Add(new ToolStripMenuItem("About Frame", null, (_, _) => ShowAboutDialog()));
 
         _mainMenu.Items.Add(mediaMenu);
         _mainMenu.Items.Add(playbackMenu);
@@ -2198,6 +2219,7 @@ public partial class Form1 : Form, IMessageFilter
         _emptyPlaylistLabel.Visible = true;
         _currentIndex = -1;
         StopPlayback();
+        Text = "Frame";
         _trackTitle.Text = "No media loaded";
         _trackStatus.Text = "Playlist cleared";
     }
@@ -2909,12 +2931,12 @@ public partial class Form1 : Form, IMessageFilter
     private void ShowAboutDialog()
     {
         MessageBox.Show(this,
-            "Media Player v1.0\n\n" +
-            "Lightweight, high-performance native Windows Media Player.\n" +
+            "Frame v1.0\n\n" +
+            "Lightweight, high-performance native Windows media player.\n" +
             "Engine: Windows Presentation Foundation (WPF) MediaEngine.\n" +
             "Hardware-accelerated 1080p, 2K, 4K 60fps video decoding.\n" +
             "150% volume boost & screenshot capture support.",
-            "About Media Player",
+            "About Frame",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
     }
@@ -2970,7 +2992,11 @@ public class SmoothTrackBar : TrackBar
         int clampedX = Math.Clamp(mouseX - margin, 0, usableWidth);
         double ratio = (double)clampedX / usableWidth;
         int target = Minimum + (int)Math.Round(ratio * (Maximum - Minimum));
-        Value = Math.Clamp(target, Minimum, Maximum);
+        int clamped = Math.Clamp(target, Minimum, Maximum);
+        if (Value != clamped)
+        {
+            Value = clamped;
+        }
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -2978,6 +3004,7 @@ public class SmoothTrackBar : TrackBar
         if (e.Button == MouseButtons.Left && Enabled)
         {
             _isMouseDown = true;
+            Capture = true;
             SetValueFromMouse(e.X);
         }
         base.OnMouseDown(e);
@@ -2998,6 +3025,7 @@ public class SmoothTrackBar : TrackBar
         {
             SetValueFromMouse(e.X);
             _isMouseDown = false;
+            Capture = false;
         }
         base.OnMouseUp(e);
     }

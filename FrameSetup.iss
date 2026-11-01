@@ -1,10 +1,10 @@
-; Inno Setup Script for Media Player
+; Inno Setup Script for Frame
 ; Written for Inno Setup 5 / 6
 
-#define MyAppName "Media Player"
+#define MyAppName "Frame"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Media Player"
-#define MyAppExeName "MediaPlayer.exe"
+#define MyAppPublisher "Frame"
+#define MyAppExeName "Frame.exe"
 
 [Setup]
 AppId={{6B5D7A9E-3E4F-4C91-9C81-817D62E1A1B2}
@@ -14,7 +14,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=installer_output
-OutputBaseFilename=MediaPlayerSetup_v{#MyAppVersion}
+OutputBaseFilename=FrameSetup_v{#MyAppVersion}
 SetupIconFile=app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

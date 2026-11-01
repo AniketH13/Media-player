@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Windows.Forms;
 
-namespace MediaPlayer;
+namespace Frame;
 
 static class Program
 {
@@ -23,7 +23,7 @@ static class Program
             {
                 File.WriteAllText("crash.log", ex.ToString());
                 MessageBox.Show($"Application encountered an error on startup:\n\n{ex.Message}\n\nFull details written to crash.log",
-                    "Media Player Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    "Frame Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch
             {

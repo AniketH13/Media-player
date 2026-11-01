@@ -7,9 +7,15 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>MediaPlayer</AssemblyName>
-    <RootNamespace>MediaPlayer</RootNamespace>
+    <AssemblyName>Frame</AssemblyName>
+    <RootNamespace>Frame</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <!-- Publishing Optimizations -->
+    <PublishSingleFile Condition="'$(SelfContained)' == 'true'">true</PublishSingleFile>
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>

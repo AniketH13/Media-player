@@ -1,6 +1,6 @@
-# Frame Media Player
+# Frame
 
-A fast, lightweight Windows desktop media player built with .NET 10 Windows Forms and native Windows Media Foundation / DirectX media pipeline.
+A fast, lightweight Windows desktop media player built with .NET 10 and native Windows Media Foundation / DirectX media pipeline.
 
 > **No external player dependencies**: Completely independent of VLC player or LibVLC. Built natively for Windows.
 
@@ -16,12 +16,12 @@ run.bat
 You can also drag-and-drop any video or audio file directly onto `run.bat` to launch and play it immediately.
 
 ### Method 2: Direct Executable
-- **Lightweight build**: [publish/MediaPlayer.exe](publish/MediaPlayer.exe)
-- **Self-contained build**: [publish-selfcontained/MediaPlayer.exe](publish-selfcontained/MediaPlayer.exe)
+- **Lightweight build (~1.3 MB)**: [publish/Frame.exe](publish/Frame.exe)
+- **Self-contained build (Standalone Single-File)**: [publish-selfcontained/Frame.exe](publish-selfcontained/Frame.exe)
 
 ### Method 3: Dotnet CLI
 ```powershell
-dotnet run
+dotnet run --project Frame.csproj
 ```
 
 ---
@@ -30,21 +30,21 @@ dotnet run
 
 To re-compile and publish:
 
-- **Self-Contained (Recommended for installer)**:
+- **Framework-Dependent (Ultra lightweight, ~1.3 MB)**:
   ```powershell
-  dotnet publish -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
+  dotnet publish Frame.csproj -c Release --no-self-contained -o .\publish
   ```
 
-- **Framework-Dependent (Ultra lightweight, ~200 KB)**:
+- **Self-Contained (Standalone Single-File Executable)**:
   ```powershell
-  dotnet publish -c Release -r win-x64 --self-contained false -o .\publish
+  dotnet publish Frame.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
   ```
 
 ---
 
 ## 💿 Installation Setup (.iss file)
 
-An Inno Setup script is included: [`MediaPlayerSetup.iss`](MediaPlayerSetup.iss).
+An Inno Setup script is included: [`FrameSetup.iss`](FrameSetup.iss).
 
 To create a professional Windows Installer (`.exe`):
 1. Install [Inno Setup](https://jrsoftware.org/isinfo.php) (if not already installed).

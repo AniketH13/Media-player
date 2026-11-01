@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title Media Player - Manual Build Tool
+title Frame - Manual Build Tool
 
 cd /d "%~dp0"
 
@@ -26,26 +26,26 @@ if /i "%~1"=="installer" goto :build_installer
 :menu
 cls
 echo ===============================================================================
-echo                         MEDIA PLAYER - BUILD TOOL
+echo                             FRAME - BUILD TOOL
 echo ===============================================================================
 echo.
-echo   [1] Build Self-Contained Release (Recommended)
+echo   [1] Build Self-Contained Release (Standalone)
 echo       - Generates portable win-x64 app (runs on any Windows PC without .NET)
-echo       - Output: .\publish-selfcontained\MediaPlayer.exe
+echo       - Output: .\publish-selfcontained\Frame.exe
 echo.
-echo   [2] Build Framework-Dependent Release
+echo   [2] Build Framework-Dependent Release (Ultra-Lightweight ~1.3MB)
 echo       - Generates compact build (requires .NET Desktop Runtime on PC)
-echo       - Output: .\publish\MediaPlayer.exe
+echo       - Output: .\publish\Frame.exe
 echo.
 echo   [3] Build Debug Version
 echo       - Fast compilation for testing and debugging
-echo       - Output: .\bin\Debug\net10.0-windows\MediaPlayer.exe
+echo       - Output: .\bin\Debug\net10.0-windows\Frame.exe
 echo.
 echo   [4] Build All Targets (Self-Contained + Framework-Dependent + Debug)
 echo.
 echo   [5] Clean All Build Folders (bin, obj, publish)
 echo.
-echo   [6] Compile Inno Setup Installer (MediaPlayerSetup.iss)
+echo   [6] Compile Inno Setup Installer (FrameSetup.iss)
 echo.
 echo   [7] Exit
 echo.
@@ -66,11 +66,11 @@ timeout /t 2 >nul
 goto :menu
 
 :check_running
-tasklist /fi "imagename eq MediaPlayer.exe" 2>nul | find /i "MediaPlayer.exe" >nul
+tasklist /fi "imagename eq Frame.exe" 2>nul | find /i "Frame.exe" >nul
 if %ERRORLEVEL% equ 0 (
-    echo [NOTICE] MediaPlayer.exe is currently running.
+    echo [NOTICE] Frame.exe is currently running.
     echo Closing running instances to prevent file-locking issues during build...
-    taskkill /f /im MediaPlayer.exe >nul 2>&1
+    taskkill /f /im Frame.exe >nul 2>&1
     timeout /t 1 /nobreak >nul
 )
 exit /b 0
@@ -81,7 +81,7 @@ echo.
 echo ===============================================================
 echo  Building Self-Contained Win-x64 Release...
 echo ===============================================================
-dotnet publish MediaPlayer.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
+dotnet publish Frame.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
 if %ERRORLEVEL% neq 0 (
     echo.
     echo [BUILD ERROR] Self-contained publish failed! Check messages above.
@@ -92,7 +92,7 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo [SUCCESS] Self-Contained build completed successfully!
 echo Executable location:
-echo   %~dp0publish-selfcontained\MediaPlayer.exe
+echo   %~dp0publish-selfcontained\Frame.exe
 echo.
 pause
 goto :menu
@@ -103,7 +103,7 @@ echo.
 echo ===============================================================
 echo  Building Framework-Dependent Release...
 echo ===============================================================
-dotnet publish MediaPlayer.csproj -c Release --no-self-contained -o .\publish
+dotnet publish Frame.csproj -c Release --no-self-contained -o .\publish
 if %ERRORLEVEL% neq 0 (
     echo.
     echo [BUILD ERROR] Framework-dependent publish failed! Check messages above.
@@ -114,7 +114,7 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo [SUCCESS] Release build completed successfully!
 echo Executable location:
-echo   %~dp0publish\MediaPlayer.exe
+echo   %~dp0publish\Frame.exe
 echo.
 pause
 goto :menu
@@ -125,7 +125,7 @@ echo.
 echo ===============================================================
 echo  Building Debug Version...
 echo ===============================================================
-dotnet build MediaPlayer.csproj -c Debug
+dotnet build Frame.csproj -c Debug
 if %ERRORLEVEL% neq 0 (
     echo.
     echo [BUILD ERROR] Debug build failed! Check messages above.
@@ -136,7 +136,7 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo [SUCCESS] Debug build completed successfully!
 echo Executable location:
-echo   %~dp0bin\Debug\net10.0-windows\MediaPlayer.exe
+echo   %~dp0bin\Debug\net10.0-windows\Frame.exe
 echo.
 pause
 goto :menu
@@ -149,25 +149,25 @@ echo  Building All Targets (Self-Contained + Release + Debug)...
 echo ===============================================================
 echo.
 echo Step 1/3: Building Debug...
-dotnet build MediaPlayer.csproj -c Debug
+dotnet build Frame.csproj -c Debug
 if %ERRORLEVEL% neq 0 goto :all_failed
 
 echo.
 echo Step 2/3: Building Framework-Dependent Release...
-dotnet publish MediaPlayer.csproj -c Release --no-self-contained -o .\publish
+dotnet publish Frame.csproj -c Release --no-self-contained -o .\publish
 if %ERRORLEVEL% neq 0 goto :all_failed
 
 echo.
 echo Step 3/3: Building Self-Contained Win-x64 Release...
-dotnet publish MediaPlayer.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
+dotnet publish Frame.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
 if %ERRORLEVEL% neq 0 goto :all_failed
 
 echo.
 echo ===============================================================
 echo [SUCCESS] All targets built successfully!
-echo   1. %~dp0publish-selfcontained\MediaPlayer.exe
-echo   2. %~dp0publish\MediaPlayer.exe
-echo   3. %~dp0bin\Debug\net10.0-windows\MediaPlayer.exe
+echo   1. %~dp0publish-selfcontained\Frame.exe
+echo   2. %~dp0publish\Frame.exe
+echo   3. %~dp0bin\Debug\net10.0-windows\Frame.exe
 echo ===============================================================
 echo.
 pause
@@ -186,7 +186,7 @@ echo.
 echo ===============================================================
 echo  Cleaning build and publish directories...
 echo ===============================================================
-dotnet clean MediaPlayer.csproj >nul 2>&1
+dotnet clean Frame.csproj >nul 2>&1
 if exist "bin" rd /s /q "bin" >nul 2>&1
 if exist "obj" rd /s /q "obj" >nul 2>&1
 if exist "publish" rd /s /q "publish" >nul 2>&1
@@ -215,15 +215,15 @@ if not defined ISCC_PATH (
     goto :menu
 )
 
-if not exist "publish-selfcontained\MediaPlayer.exe" (
+if not exist "publish-selfcontained\Frame.exe" (
     echo [INFO] Self-contained build not found. Compiling first...
-    dotnet publish MediaPlayer.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
+    dotnet publish Frame.csproj -c Release -r win-x64 --self-contained true -o .\publish-selfcontained
 )
 
-"%ISCC_PATH%" MediaPlayerSetup.iss
+"%ISCC_PATH%" FrameSetup.iss
 if %ERRORLEVEL% equ 0 (
     echo.
-    echo [SUCCESS] Installer successfully compiled to Output\MediaPlayerSetup.exe
+    echo [SUCCESS] Installer successfully compiled to Output\FrameSetup.exe
 ) else (
     echo.
     echo [ERROR] Inno Setup compilation failed.
