@@ -1,0 +1,16 @@
+# Force GitHub Linguist to accurately report C# and ignore any third-party or build scripts
+*.js linguist-vendored
+*.html linguist-vendored
+*.css linguist-vendored
+*.lua linguist-vendored
+*.luac linguist-vendored
+*.iss linguist-vendored
+*.bat linguist-vendored
+*.cmd linguist-vendored
+publish/** linguist-vendored
+publish-selfcontained/** linguist-vendored
+bin/** linguist-vendored
+obj/** linguist-vendored
+
+*.cs linguist-detectable=true
+*.cs linguist-language=C#
