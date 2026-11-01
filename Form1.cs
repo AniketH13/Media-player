@@ -99,6 +99,8 @@ public partial class Form1 : Form, IMessageFilter
     private readonly SmoothTrackBar _volumeBar;
     private readonly System.Windows.Forms.Timer _playbackTimer;
     private readonly System.Windows.Forms.Timer _fullScreenTimer;
+    private readonly System.Windows.Forms.Timer _titleAutoHideTimer;
+    private bool _isAudioOnly;
 
     private double _playbackSpeed = 1.0;
 
@@ -434,6 +436,16 @@ public partial class Form1 : Form, IMessageFilter
         _fullScreenTimer = new System.Windows.Forms.Timer { Interval = 200 };
         _fullScreenTimer.Tick += FullScreenTimer_Tick;
         _fullScreenTimer.Start();
+
+        _titleAutoHideTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+        _titleAutoHideTimer.Tick += (_, _) =>
+        {
+            _titleAutoHideTimer.Stop();
+            if (_isPlaying && !_isAudioOnly)
+            {
+                HideTitleHeader();
+            }
+        };
 
         Application.AddMessageFilter(this);
 
@@ -781,7 +793,6 @@ public partial class Form1 : Form, IMessageFilter
             _durationLabel.Text = "00:00";
 
             string title;
-            bool isAudioOnly = false;
             if (isNetworkUrl)
             {
                 title = _streamTitles.TryGetValue(path, out var t) ? t : path;
@@ -791,6 +802,7 @@ public partial class Form1 : Form, IMessageFilter
                 _audioTitle.Visible = false;
                 _elementHost.Visible = true;
                 _elementHost.BringToFront();
+                _isAudioOnly = false;
             }
             else
             {
@@ -799,8 +811,8 @@ public partial class Form1 : Form, IMessageFilter
                 Text = $"{title} - Frame";
                 _trackStatus.Text = "Opening...";
 
-                isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
-                if (isAudioOnly)
+                _isAudioOnly = AudioExtensions.Contains(Path.GetExtension(path));
+                if (_isAudioOnly)
                 {
                     _audioTitle.Text = title;
                     _audioTitle.Visible = true;
@@ -816,7 +828,7 @@ public partial class Form1 : Form, IMessageFilter
             }
 
             // Auto-hide playlist sidebar when video playback starts
-            if (!isAudioOnly)
+            if (!_isAudioOnly)
             {
                 SetPlaylistVisibility(false);
             }
@@ -825,6 +837,9 @@ public partial class Form1 : Form, IMessageFilter
             _mediaElement.Source = isNetworkUrl ? new Uri(path) : new Uri(Path.GetFullPath(path));
             _mediaElement.Play();
             UpdatePlayState(true, isNetworkUrl ? "Streaming" : "Playing");
+
+            // Mention video title for 5 seconds when playback starts, then auto-disappear to keep view clean
+            ShowTitleHeader(startTimer: true);
 
             // Auto-detect and load subtitles for local media
             if (!isNetworkUrl)
@@ -898,6 +913,7 @@ public partial class Form1 : Form, IMessageFilter
         else
         {
             UpdatePlayState(false, "Finished");
+            ShowTitleHeader(startTimer: false);
         }
     }
 
@@ -910,6 +926,7 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         UpdatePlayState(false, "This format or file could not be played");
+        ShowTitleHeader(startTimer: false);
     }
 
     private void TogglePlayback()
@@ -924,11 +941,13 @@ public partial class Form1 : Form, IMessageFilter
         {
             _mediaElement.Pause();
             UpdatePlayState(false, "Paused");
+            ShowTitleHeader(startTimer: false);
         }
         else
         {
             _mediaElement.Play();
             UpdatePlayState(true, "Playing");
+            ShowTitleHeader(startTimer: true);
         }
     }
 
@@ -1173,6 +1192,7 @@ public partial class Form1 : Form, IMessageFilter
         WindowState = FormWindowState.Normal;
         Bounds = Screen.FromControl(this).Bounds;
 
+        _titleAutoHideTimer.Stop();
         if (_mainMenu != null) _mainMenu.Visible = false;
         if (_headerLayout != null) _headerLayout.Visible = false;
         if (_playlistPanel != null) _playlistPanel.Visible = false;
@@ -1223,15 +1243,22 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         if (_mainMenu != null) _mainMenu.Visible = true;
-        if (_headerLayout != null) _headerLayout.Visible = true;
         if (_footerPanel != null) _footerPanel.Visible = true;
         if (_rootLayout != null)
         {
-            _rootLayout.RowStyles[0].Height = 54;
             _rootLayout.RowStyles[2].Height = 94;
             _rootLayout.Padding = new Padding(16, 6, 16, 8);
         }
         SetPlaylistVisibility(_isPlaylistVisible);
+
+        if (_isPlaying && !_isAudioOnly)
+        {
+            HideTitleHeader();
+        }
+        else
+        {
+            ShowTitleHeader(startTimer: false);
+        }
 
         _toolTip.SetToolTip(_fullScreenButton, "Full Screen (F / F11)");
         _fullScreenButton.Invalidate();
@@ -1291,10 +1318,22 @@ public partial class Form1 : Form, IMessageFilter
 
     private void OnUserActivity()
     {
-        if (!_isFullScreen) return;
-
         _lastActivityTime = DateTime.UtcNow;
-        ShowFullScreenControls();
+
+        if (_isFullScreen)
+        {
+            ShowFullScreenControls();
+        }
+        else if (_isPlaying && !_isAudioOnly)
+        {
+            // In windowed video playback, only temporarily show title if mouse moved near the top area (Y <= 75)
+            // so ordinary viewing / seeking doesn't keep popping up the title banner
+            var clientPt = PointToClient(Cursor.Position);
+            if (clientPt.Y <= 75 && clientPt.Y >= 0 && clientPt.X >= 0 && clientPt.X <= ClientSize.Width)
+            {
+                ShowTitleHeader(startTimer: true);
+            }
+        }
     }
 
     private void ShowFullScreenControls()
@@ -1462,6 +1501,7 @@ public partial class Form1 : Form, IMessageFilter
     {
         Application.RemoveMessageFilter(this);
         _fullScreenTimer.Stop();
+        _titleAutoHideTimer.Stop();
         if (_cursorHidden)
         {
             Cursor.Show();
@@ -2898,6 +2938,37 @@ public partial class Form1 : Form, IMessageFilter
     private void TogglePlaylistPanel()
     {
         SetPlaylistVisibility(!_isPlaylistVisible);
+    }
+
+    private void ShowTitleHeader(bool startTimer = true)
+    {
+        if (_headerLayout == null || _rootLayout == null || _isFullScreen) return;
+
+        if (!_headerLayout.Visible || _rootLayout.RowStyles[0].Height != 54)
+        {
+            _headerLayout.Visible = true;
+            _rootLayout.RowStyles[0].Height = 54;
+            ApplyAspectRatio();
+        }
+
+        _titleAutoHideTimer.Stop();
+        if (startTimer && _isPlaying && !_isAudioOnly)
+        {
+            _titleAutoHideTimer.Start();
+        }
+    }
+
+    private void HideTitleHeader()
+    {
+        if (_headerLayout == null || _rootLayout == null || _isFullScreen) return;
+        if (!_isPlaying || _isAudioOnly) return;
+
+        if (_headerLayout.Visible || _rootLayout.RowStyles[0].Height != 0)
+        {
+            _headerLayout.Visible = false;
+            _rootLayout.RowStyles[0].Height = 0;
+            ApplyAspectRatio();
+        }
     }
 
     private void ToggleAlwaysOnTop()
