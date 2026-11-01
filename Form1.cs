@@ -117,6 +117,8 @@ public partial class Form1 : Form, IMessageFilter
     private bool _wasPlayingBeforeSeek;
     private double _lastSeekMs = -1;
     private DateTime _lastScrubTime = DateTime.MinValue;
+    private long _lastElapsedSecond = -1;
+    private int _trimTimerCounter;
     private bool _suppressPlaylistSelection;
     private bool _isMuted;
     private TimeSpan _duration = TimeSpan.Zero;
@@ -182,6 +184,8 @@ public partial class Form1 : Form, IMessageFilter
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             VerticalAlignment = System.Windows.VerticalAlignment.Center
         };
+        System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.HighQuality);
+        System.Windows.Media.RenderOptions.SetEdgeMode(_mediaElement, System.Windows.Media.EdgeMode.Aliased);
         _mediaElement.MediaOpened += MediaElement_MediaOpened;
         _mediaElement.MediaEnded += MediaElement_MediaEnded;
         _mediaElement.MediaFailed += MediaElement_MediaFailed;
@@ -901,6 +905,7 @@ public partial class Form1 : Form, IMessageFilter
             UpdateEnhancerMenuCheckmarks();
         }
         UpdatePlayState(true, _mediaElement.NaturalDuration.HasTimeSpan ? "Playing" : "Live Stream");
+        OptimizeMemory();
     }
 
     private void MediaElement_MediaEnded(object? sender, System.Windows.RoutedEventArgs e)
@@ -1062,15 +1067,30 @@ public partial class Form1 : Form, IMessageFilter
         }
 
         var currentPosition = _mediaElement.Position;
-        _elapsedLabel.Text = FormatTime((long)currentPosition.TotalMilliseconds);
+        long currentSec = (long)currentPosition.TotalSeconds;
+        if (currentSec != _lastElapsedSecond)
+        {
+            _lastElapsedSecond = currentSec;
+            _elapsedLabel.Text = FormatTime((long)currentPosition.TotalMilliseconds);
+        }
 
         var value = (int)Math.Clamp(
             currentPosition.TotalMilliseconds * _seekBar.Maximum / _duration.TotalMilliseconds,
             _seekBar.Minimum,
             _seekBar.Maximum);
-        _seekBar.Value = value;
+        if (_seekBar.Value != value)
+        {
+            _seekBar.Value = value;
+        }
 
         UpdateSubtitles(currentPosition);
+
+        // Periodic working set trim every ~30 seconds of playback to keep RAM low
+        if (++_trimTimerCounter >= 200)
+        {
+            _trimTimerCounter = 0;
+            OptimizeMemory();
+        }
     }
 
     // ProcessCmdKey guarantees arrow keys and shortcuts are processed before any child control captures them
@@ -2268,6 +2288,7 @@ public partial class Form1 : Form, IMessageFilter
         _trackTitle.Text = "No media loaded";
         _trackStatus.Text = "Playlist cleared";
         UpdateEnhancerMenuCheckmarks();
+        OptimizeMemory();
     }
 
     private void StopPlayback()
@@ -2511,7 +2532,17 @@ public partial class Form1 : Form, IMessageFilter
         var adjusted = position + _subtitleSyncOffset;
         if (adjusted < TimeSpan.Zero) adjusted = TimeSpan.Zero;
 
-        var cue = _currentSubtitleCues.FirstOrDefault(c => adjusted >= c.Start && adjusted <= c.End);
+        SubtitleCue? cue = null;
+        for (int i = 0; i < _currentSubtitleCues.Count; i++)
+        {
+            var c = _currentSubtitleCues[i];
+            if (adjusted >= c.Start && adjusted <= c.End)
+            {
+                cue = c;
+                break;
+            }
+            if (c.Start > adjusted) break;
+        }
         if (cue != null)
         {
             if (_subtitleText.Text != cue.Text)
@@ -2697,7 +2728,7 @@ public partial class Form1 : Form, IMessageFilter
                 VideoHeight = vh
             };
             _mediaElement.Effect = _enhancerEffect;
-            System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.Fant);
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(_mediaElement, System.Windows.Media.BitmapScalingMode.HighQuality);
 
             var resDesc = vh >= 900 ? "1080p ➔ 2K" : (vh >= 650 ? "720p ➔ 1080p" : "480p ➔ 720p");
             _trackStatus.Text = $"Quality Enhancer: Active ({resDesc}, Level: {_enhancerAmount:0.#}x)";
@@ -3020,6 +3051,23 @@ public partial class Form1 : Form, IMessageFilter
     {
         TopMost = !TopMost;
         _trackStatus.Text = TopMost ? "Always on top: Enabled" : "Always on top: Disabled";
+    }
+
+    [System.Runtime.InteropServices.DllImport("psapi.dll")]
+    private static extern int EmptyWorkingSet(IntPtr hwProc);
+
+    private static void OptimizeMemory()
+    {
+        try
+        {
+            GC.Collect(1, GCCollectionMode.Optimized, false);
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                using var proc = System.Diagnostics.Process.GetCurrentProcess();
+                EmptyWorkingSet(proc.Handle);
+            }
+        }
+        catch { }
     }
 
     private void ShowShortcutsHelp()
