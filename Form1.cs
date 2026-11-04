@@ -34,6 +34,14 @@ public enum AspectRatioMode
     Original
 }
 
+public enum AudioEnhancerMode
+{
+    Off,
+    DialogueClarity,
+    NightMode,
+    VolumeBoost200
+}
+
 public partial class Form1 : Form, IMessageFilter
 {
     private static readonly Color WindowColor = Color.FromArgb(17, 19, 24);
@@ -78,6 +86,13 @@ public partial class Form1 : Form, IMessageFilter
     private ToolStripMenuItem? _enhancerMenuItem;
     private ToolStripMenuItem? _contextEnhancerMenuItem;
     private ToolStripMenuItem? _enhancerLevelMenu;
+
+    // Audio Enhancer (Dialogue Clarity / CAM Boost / Dynamic Normalization)
+    private bool _isAudioEnhancerEnabled;
+    private AudioEnhancerMode _audioEnhancerMode = AudioEnhancerMode.Off;
+    private ToolStripMenuItem? _audioEnhancerMenuItem;
+    private ToolStripMenuItem? _contextAudioEnhancerMenuItem;
+    private int _savedPreEnhanceVolume = -1;
     private readonly ListBox _playlist;
     private readonly Label _emptyPlaylistLabel;
     private readonly Label _trackTitle;
@@ -400,11 +415,11 @@ public partial class Form1 : Form, IMessageFilter
         _seekBar.MouseUp += (_, _) => FinishSeeking();
         _seekBar.KeyUp += (_, _) => FinishSeeking();
 
-        // Volume bar boosted up to 150%
+        // Volume bar boosted up to 200%
         _volumeBar = new SmoothTrackBar
         {
             Minimum = 0,
-            Maximum = 150,
+            Maximum = 200,
             Value = 80,
             TickStyle = TickStyle.None,
             BackColor = PanelColor,
@@ -416,7 +431,12 @@ public partial class Form1 : Form, IMessageFilter
         {
             _mediaElement.Volume = _volumeBar.Value / 100.0;
             _volumeLabel.Text = $"{_volumeBar.Value}%";
-            if (_volumeBar.Value > 100)
+            if (_volumeBar.Value > 150)
+            {
+                _volumeLabel.ForeColor = Color.FromArgb(255, 95, 95);
+                _toolTip.SetToolTip(_volumeLabel, $"Volume: {_volumeBar.Value}% (Super Boost)");
+            }
+            else if (_volumeBar.Value > 100)
             {
                 _volumeLabel.ForeColor = Color.FromArgb(255, 175, 75);
                 _toolTip.SetToolTip(_volumeLabel, $"Volume: {_volumeBar.Value}% (Boosted)");
@@ -1108,7 +1128,7 @@ public partial class Form1 : Form, IMessageFilter
 
     private void ChangeVolume(int delta)
     {
-        var newVol = Math.Clamp(_volumeBar.Value + delta, 0, 150);
+        var newVol = Math.Clamp(_volumeBar.Value + delta, 0, 200);
         _volumeBar.Value = newVol;
     }
 
@@ -1297,6 +1317,11 @@ public partial class Form1 : Form, IMessageFilter
         if (keyData == Keys.E)
         {
             ToggleVideoEnhancer();
+            return true;
+        }
+        if (keyData == Keys.C && !(ActiveControl is TextBoxBase))
+        {
+            ToggleAudioEnhancer();
             return true;
         }
         if (keyData == Keys.V)
@@ -2172,6 +2197,13 @@ public partial class Form1 : Form, IMessageFilter
         };
         _videoContextMenu.Items.Add(_contextEnhancerMenuItem);
 
+        _contextAudioEnhancerMenuItem = new ToolStripMenuItem("Dialogue Clarity & CAM Boost", null, (_, _) => ToggleAudioEnhancer())
+        {
+            ShortcutKeyDisplayString = "C",
+            Checked = _isAudioEnhancerEnabled
+        };
+        _videoContextMenu.Items.Add(_contextAudioEnhancerMenuItem);
+
         _contextSubtitleMenu = new ToolStripMenuItem("Subtitle");
         UpdateContextSubtitleMenu();
         _videoContextMenu.Items.Add(_contextSubtitleMenu);
@@ -2295,13 +2327,30 @@ public partial class Form1 : Form, IMessageFilter
         audioMenu.DropDownItems.Add(new ToolStripSeparator());
 
         var volumeLevelsMenu = new ToolStripMenuItem("Volume Preset");
-        int[] levels = [25, 50, 80, 100, 125, 150];
+        int[] levels = [25, 50, 80, 100, 125, 150, 175, 200];
         foreach (var lvl in levels)
         {
-            var label = lvl > 100 ? $"{lvl}% (Boosted)" : $"{lvl}%";
+            var label = lvl > 150 ? $"{lvl}% (Super Boost)" : lvl > 100 ? $"{lvl}% (Boosted)" : $"{lvl}%";
             volumeLevelsMenu.DropDownItems.Add(new ToolStripMenuItem(label, null, (_, _) => { _volumeBar.Value = lvl; }));
         }
         audioMenu.DropDownItems.Add(volumeLevelsMenu);
+        audioMenu.DropDownItems.Add(new ToolStripSeparator());
+
+        _audioEnhancerMenuItem = new ToolStripMenuItem("Dialogue Clarity & CAM Boost", null, (_, _) => ToggleAudioEnhancer())
+        {
+            ShortcutKeyDisplayString = "C",
+            Checked = _isAudioEnhancerEnabled
+        };
+        audioMenu.DropDownItems.Add(_audioEnhancerMenuItem);
+
+        var audioToolsMenu = new ToolStripMenuItem("Audio Enhancer Modes");
+        audioToolsMenu.DropDownItems.Add(new ToolStripMenuItem("Dialogue & Speech Clarity (CAM Mode)", null, (_, _) => SetAudioEnhancerMode(AudioEnhancerMode.DialogueClarity)));
+        audioToolsMenu.DropDownItems.Add(new ToolStripMenuItem("Night Mode (Dynamic Normalization)", null, (_, _) => SetAudioEnhancerMode(AudioEnhancerMode.NightMode)));
+        audioToolsMenu.DropDownItems.Add(new ToolStripMenuItem("200% Super Volume Boost", null, (_, _) => SetAudioEnhancerMode(AudioEnhancerMode.VolumeBoost200)));
+        audioToolsMenu.DropDownItems.Add(new ToolStripMenuItem("Off (Original Audio)", null, (_, _) => SetAudioEnhancerMode(AudioEnhancerMode.Off)));
+        audioToolsMenu.DropDownItems.Add(new ToolStripSeparator());
+        audioToolsMenu.DropDownItems.Add(new ToolStripMenuItem("Windows Loudness Equalization Settings...", null, (_, _) => OpenWindowsSoundEnhancements()));
+        audioMenu.DropDownItems.Add(audioToolsMenu);
 
         // 4. Video
         var videoMenu = new ToolStripMenuItem("&Video");
@@ -2951,6 +3000,100 @@ public partial class Form1 : Form, IMessageFilter
         }
     }
 
+    private void ToggleAudioEnhancer()
+    {
+        if (_isAudioEnhancerEnabled)
+        {
+            SetAudioEnhancerMode(AudioEnhancerMode.Off);
+        }
+        else
+        {
+            SetAudioEnhancerMode(AudioEnhancerMode.DialogueClarity);
+        }
+    }
+
+    private void SetAudioEnhancerMode(AudioEnhancerMode mode)
+    {
+        _audioEnhancerMode = mode;
+        _isAudioEnhancerEnabled = mode != AudioEnhancerMode.Off;
+
+        switch (mode)
+        {
+            case AudioEnhancerMode.DialogueClarity:
+                if (_savedPreEnhanceVolume < 0)
+                {
+                    _savedPreEnhanceVolume = _volumeBar.Value;
+                }
+                if (_volumeBar.Value < 140)
+                {
+                    _volumeBar.Value = 140;
+                }
+                _trackStatus.Text = "Audio Enhancer: Dialogue & Speech Clarity (CAM Mode) Enabled";
+                break;
+
+            case AudioEnhancerMode.NightMode:
+                if (_savedPreEnhanceVolume < 0)
+                {
+                    _savedPreEnhanceVolume = _volumeBar.Value;
+                }
+                _volumeBar.Value = 110;
+                _trackStatus.Text = "Audio Enhancer: Night Mode (Balanced Dynamic Range) Enabled";
+                break;
+
+            case AudioEnhancerMode.VolumeBoost200:
+                _volumeBar.Value = 200;
+                _trackStatus.Text = "Audio Enhancer: 200% Super Volume Boost Enabled";
+                break;
+
+            case AudioEnhancerMode.Off:
+            default:
+                if (_savedPreEnhanceVolume >= 0)
+                {
+                    _volumeBar.Value = Math.Clamp(_savedPreEnhanceVolume, 0, 200);
+                    _savedPreEnhanceVolume = -1;
+                }
+                _trackStatus.Text = "Audio Enhancer: Off (Normal audio)";
+                break;
+        }
+
+        UpdateAudioEnhancerMenuCheckmarks();
+    }
+
+    private void UpdateAudioEnhancerMenuCheckmarks()
+    {
+        if (_audioEnhancerMenuItem != null)
+        {
+            _audioEnhancerMenuItem.Checked = _isAudioEnhancerEnabled;
+        }
+        if (_contextAudioEnhancerMenuItem != null)
+        {
+            _contextAudioEnhancerMenuItem.Checked = _isAudioEnhancerEnabled;
+        }
+    }
+
+    private void OpenWindowsSoundEnhancements()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("control.exe", "mmsys.cpl sounds") { UseShellExecute = true });
+            MessageBox.Show(this,
+                "To enable Windows Hardware Loudness Equalization:\n\n" +
+                "1. In the Sound window that just opened, select your default speaker/headphones.\n" +
+                "2. Click 'Properties'.\n" +
+                "3. Go to the 'Enhancements' or 'Advanced' tab.\n" +
+                "4. Check 'Loudness Equalization' (or 'Voice Clarity').\n" +
+                "5. Click Apply & OK.\n\n" +
+                "This lifts quiet whisper dialogue by +12dB and suppresses booming cinema echo!",
+                "Windows Dialogue & Loudness Equalization",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Could not open Windows Sound settings: {ex.Message}", "Sound Settings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
     private async void OpenNetworkStream()
     {
         string? initialUrl = null;
@@ -3332,6 +3475,7 @@ public partial class Form1 : Form, IMessageFilter
             "M\t\t\tMute / Unmute\n" +
             "A\t\t\tCycle Aspect Ratio\n" +
             "E\t\t\tToggle Video Quality Enhancer\n" +
+            "C\t\t\tToggle Dialogue Clarity & CAM Audio Boost\n" +
             "Ctrl + U\t\tOpen Network Stream (YouTube, Twitch, Kick)\n" +
             "V\t\t\tToggle Subtitles On / Off\n" +
             "G / H\t\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
