@@ -118,7 +118,6 @@ public partial class Form1 : Form, IMessageFilter
     private double _lastSeekMs = -1;
     private DateTime _lastScrubTime = DateTime.MinValue;
     private long _lastElapsedSecond = -1;
-    private int _trimTimerCounter;
     private bool _suppressPlaylistSelection;
     private bool _isMuted;
     private TimeSpan _duration = TimeSpan.Zero;
@@ -132,6 +131,14 @@ public partial class Form1 : Form, IMessageFilter
     private FormWindowState _previousWindowState = FormWindowState.Normal;
     private FormBorderStyle _previousBorderStyle = FormBorderStyle.Sizable;
     private Rectangle _previousBounds;
+
+    // Playback resume memory & Mini-player state
+    private static readonly Dictionary<string, double> _playbackResumePositions = new(StringComparer.OrdinalIgnoreCase);
+    private long _lastHoverSecond = -1;
+    private bool _isMiniPlayer;
+    private Size _previousNormalSize = Size.Empty;
+    private Point _previousNormalLocation = Point.Empty;
+    private int _trimTimerCounter;
 
     public Form1(string[]? initialFiles = null)
     {
@@ -362,12 +369,33 @@ public partial class Form1 : Form, IMessageFilter
                 PerformSeek(_seekBar.Value);
             }
         };
-        _seekBar.MouseMove += (_, _) =>
+        _seekBar.MouseMove += (s, e) =>
         {
             if (_isSeeking && _seekBar.Enabled && _duration.TotalMilliseconds > 0)
             {
                 ThrottledSeek(_seekBar.Value);
             }
+            else if (_seekBar.Enabled && _duration.TotalMilliseconds > 0)
+            {
+                const int margin = 10;
+                int usableWidth = _seekBar.ClientSize.Width - (2 * margin);
+                if (usableWidth > 0)
+                {
+                    int clampedX = Math.Clamp(e.X - margin, 0, usableWidth);
+                    double ratio = (double)clampedX / usableWidth;
+                    long hoverSec = (long)(_duration.TotalSeconds * ratio);
+                    if (hoverSec != _lastHoverSecond)
+                    {
+                        _lastHoverSecond = hoverSec;
+                        _toolTip.SetToolTip(_seekBar, FormatTime(hoverSec * 1000));
+                    }
+                }
+            }
+        };
+        _seekBar.MouseLeave += (_, _) =>
+        {
+            _lastHoverSecond = -1;
+            _toolTip.SetToolTip(_seekBar, string.Empty);
         };
         _seekBar.MouseUp += (_, _) => FinishSeeking();
         _seekBar.KeyUp += (_, _) => FinishSeeking();
@@ -435,11 +463,9 @@ public partial class Form1 : Form, IMessageFilter
 
         _playbackTimer = new System.Windows.Forms.Timer { Interval = 150 };
         _playbackTimer.Tick += (_, _) => UpdatePlaybackPosition();
-        _playbackTimer.Start();
 
         _fullScreenTimer = new System.Windows.Forms.Timer { Interval = 200 };
         _fullScreenTimer.Tick += FullScreenTimer_Tick;
-        _fullScreenTimer.Start();
 
         _titleAutoHideTimer = new System.Windows.Forms.Timer { Interval = 5000 };
         _titleAutoHideTimer.Tick += (_, _) =>
@@ -459,14 +485,28 @@ public partial class Form1 : Form, IMessageFilter
 
         BuildLayout();
 
+        AllowDrop = true;
         DragEnter += HandleDragEnter;
         DragDrop += HandleDragDrop;
+
+        _elementHost.AllowDrop = true;
         _elementHost.DragEnter += HandleDragEnter;
         _elementHost.DragDrop += HandleDragDrop;
+
+        _audioTitle.AllowDrop = true;
         _audioTitle.DragEnter += HandleDragEnter;
         _audioTitle.DragDrop += HandleDragDrop;
+
+        _playlist.AllowDrop = true;
         _playlist.DragEnter += HandleDragEnter;
         _playlist.DragDrop += HandleDragDrop;
+
+        if (_videoHost != null)
+        {
+            _videoHost.AllowDrop = true;
+            _videoHost.DragEnter += HandleDragEnter;
+            _videoHost.DragDrop += HandleDragDrop;
+        }
         FormClosed += HandleFormClosed;
 
         if (initialFiles != null && initialFiles.Length > 0)
@@ -905,6 +945,20 @@ public partial class Form1 : Form, IMessageFilter
             UpdateEnhancerMenuCheckmarks();
         }
         UpdatePlayState(true, _mediaElement.NaturalDuration.HasTimeSpan ? "Playing" : "Live Stream");
+
+        string? currentPath = (_currentIndex >= 0 && _currentIndex < _playlist.Items.Count)
+            ? _playlist.Items[_currentIndex] as string
+            : null;
+
+        if (currentPath != null && _playbackResumePositions.TryGetValue(currentPath, out double savedSec) && savedSec > 15)
+        {
+            if (_duration.TotalSeconds > 0 && savedSec < (_duration.TotalSeconds - 10))
+            {
+                _mediaElement.Position = TimeSpan.FromSeconds(savedSec);
+                _trackStatus.Text = $"Resumed at {FormatTime((long)(savedSec * 1000))} (Press Backspace to restart)";
+            }
+        }
+
         OptimizeMemory();
         TriggerDelayedMemoryOptimization();
     }
@@ -915,6 +969,11 @@ public partial class Form1 : Form, IMessageFilter
         {
             BeginInvoke(new Action(() => MediaElement_MediaEnded(sender, e)));
             return;
+        }
+
+        if (_currentIndex >= 0 && _currentIndex < _playlist.Items.Count && _playlist.Items[_currentIndex] is string endedPath)
+        {
+            _playbackResumePositions.Remove(endedPath);
         }
 
         if (_currentIndex + 1 < _playlist.Items.Count)
@@ -1086,8 +1145,17 @@ public partial class Form1 : Form, IMessageFilter
 
         UpdateSubtitles(currentPosition);
 
-        // Periodic working set trim every ~10 seconds of playback to keep RAM minimal
-        if (++_trimTimerCounter >= 70)
+        // Remember playback resume position for files played > 15 seconds
+        if (currentSec > 15 && _duration.TotalSeconds > 30 && currentSec < (_duration.TotalSeconds - 10))
+        {
+            if (_currentIndex >= 0 && _currentIndex < _playlist.Items.Count && _playlist.Items[_currentIndex] is string activePath)
+            {
+                _playbackResumePositions[activePath] = currentPosition.TotalSeconds;
+            }
+        }
+
+        // Periodic working set trim every ~20 seconds of playback to keep RAM ultra low
+        if (++_trimTimerCounter >= 130)
         {
             _trimTimerCounter = 0;
             OptimizeMemory();
@@ -1102,14 +1170,65 @@ public partial class Form1 : Form, IMessageFilter
             OnUserActivity();
         }
 
+        if (keyData == (Keys.Control | Keys.Left))
+        {
+            SeekRelative(-30);
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.Right))
+        {
+            SeekRelative(30);
+            return true;
+        }
+        if (keyData == Keys.PageUp)
+        {
+            SeekRelative(60);
+            return true;
+        }
+        if (keyData == Keys.PageDown)
+        {
+            SeekRelative(-60);
+            return true;
+        }
         if (keyData == Keys.Left)
         {
-            SeekRelative(-10);
+            SeekRelative(-5);
             return true;
         }
         if (keyData == Keys.Right)
         {
-            SeekRelative(10);
+            SeekRelative(5);
+            return true;
+        }
+        if (keyData == Keys.Back && !(ActiveControl is TextBoxBase))
+        {
+            if (_duration.TotalMilliseconds > 0)
+            {
+                _mediaElement.Position = TimeSpan.Zero;
+                _seekBar.Value = 0;
+                _elapsedLabel.Text = FormatTime(0);
+                _trackStatus.Text = "Restarted from beginning (00:00)";
+                return true;
+            }
+        }
+        if (keyData == Keys.I && !(ActiveControl is TextBoxBase))
+        {
+            ToggleMiniPlayer();
+            return true;
+        }
+        if (keyData == Keys.OemOpenBrackets && !(ActiveControl is TextBoxBase))
+        {
+            SetPlaybackSpeed(Math.Clamp(Math.Round(_playbackSpeed - 0.1, 1), 0.2, 3.0));
+            return true;
+        }
+        if (keyData == Keys.OemCloseBrackets && !(ActiveControl is TextBoxBase))
+        {
+            SetPlaybackSpeed(Math.Clamp(Math.Round(_playbackSpeed + 0.1, 1), 0.2, 3.0));
+            return true;
+        }
+        if ((keyData == Keys.OemPipe || keyData == Keys.OemBackslash) && !(ActiveControl is TextBoxBase))
+        {
+            SetPlaybackSpeed(1.0);
             return true;
         }
         if (keyData == Keys.Up)
@@ -1142,10 +1261,18 @@ public partial class Form1 : Form, IMessageFilter
             ToggleFullScreen();
             return true;
         }
-        if (keyData == Keys.Escape && _isFullScreen)
+        if (keyData == Keys.Escape)
         {
-            ExitFullScreen();
-            return true;
+            if (_isFullScreen)
+            {
+                ExitFullScreen();
+                return true;
+            }
+            if (_isMiniPlayer)
+            {
+                ToggleMiniPlayer();
+                return true;
+            }
         }
         if (keyData == Keys.M)
         {
@@ -1246,6 +1373,7 @@ public partial class Form1 : Form, IMessageFilter
         _lastActivityTime = DateTime.UtcNow;
         _lastMousePosition = Cursor.Position;
         ShowFullScreenControls();
+        _fullScreenTimer.Start();
     }
 
     private void ExitFullScreen()
@@ -1254,6 +1382,7 @@ public partial class Form1 : Form, IMessageFilter
 
         SuspendLayout();
         _isFullScreen = false;
+        _fullScreenTimer.Stop();
 
         if (_cursorHidden)
         {
@@ -1313,6 +1442,30 @@ public partial class Form1 : Form, IMessageFilter
 
     public bool PreFilterMessage(ref Message m)
     {
+        const int WM_MOUSEWHEEL = 0x020A;
+        if (m.Msg == WM_MOUSEWHEEL)
+        {
+            var cur = Cursor.Position;
+            if (Bounds.Contains(cur))
+            {
+                int delta = (short)((long)m.WParam >> 16);
+                if (_seekBar != null && _seekBar.ClientRectangle.Contains(_seekBar.PointToClient(cur)))
+                {
+                    SeekRelative(delta > 0 ? 5.0 : -5.0);
+                }
+                else if (ModifierKeys.HasFlag(Keys.Control))
+                {
+                    SeekRelative(delta > 0 ? 10.0 : -10.0);
+                }
+                else
+                {
+                    ChangeVolume(delta > 0 ? 5 : -5);
+                }
+                OnUserActivity();
+                return true;
+            }
+        }
+
         if (_isFullScreen)
         {
             const int WM_MOUSEMOVE = 0x0200;
@@ -1320,7 +1473,6 @@ public partial class Form1 : Form, IMessageFilter
             const int WM_LBUTTONUP = 0x0202;
             const int WM_RBUTTONDOWN = 0x0204;
             const int WM_MBUTTONDOWN = 0x0207;
-            const int WM_MOUSEWHEEL = 0x020A;
             const int WM_KEYDOWN = 0x0100;
 
             if (m.Msg == WM_MOUSEMOVE)
@@ -1334,7 +1486,7 @@ public partial class Form1 : Form, IMessageFilter
             }
             else if (m.Msg == WM_LBUTTONDOWN || m.Msg == WM_LBUTTONUP ||
                      m.Msg == WM_RBUTTONDOWN || m.Msg == WM_MBUTTONDOWN ||
-                     m.Msg == WM_MOUSEWHEEL || m.Msg == WM_KEYDOWN)
+                     m.Msg == WM_KEYDOWN)
             {
                 OnUserActivity();
             }
@@ -1549,6 +1701,18 @@ public partial class Form1 : Form, IMessageFilter
     private void UpdatePlayState(bool isPlaying, string? status = null)
     {
         _isPlaying = isPlaying;
+        if (isPlaying)
+        {
+            if (!_playbackTimer.Enabled)
+            {
+                _playbackTimer.Start();
+            }
+        }
+        else
+        {
+            _playbackTimer.Stop();
+        }
+
         if (!string.IsNullOrEmpty(status))
         {
             _trackStatus.Text = status;
@@ -2014,6 +2178,7 @@ public partial class Form1 : Form, IMessageFilter
 
         _videoContextMenu.Items.Add(new ToolStripSeparator());
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Up next / Playlist (P)", null, (_, _) => TogglePlaylistPanel()));
+        _videoContextMenu.Items.Add(new ToolStripMenuItem("Picture-in-Picture / Mini Player (I)", null, (_, _) => ToggleMiniPlayer()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Open Network Stream...", null, (_, _) => OpenNetworkStream(), Keys.Control | Keys.U));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Take Screenshot (Ctrl + S)", null, (_, _) => TakeScreenshot()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Full Screen (F / F11)", null, (_, _) => ToggleFullScreen()));
@@ -2211,6 +2376,11 @@ public partial class Form1 : Form, IMessageFilter
             ShortcutKeyDisplayString = "F / F11"
         };
         viewMenu.DropDownItems.Add(fsView);
+        var miniPlayerItem = new ToolStripMenuItem("Picture-in-Picture / Mini Player", null, (_, _) => ToggleMiniPlayer())
+        {
+            ShortcutKeyDisplayString = "I"
+        };
+        viewMenu.DropDownItems.Add(miniPlayerItem);
         var alwaysOnTopItem = new ToolStripMenuItem("Always on Top", null, (s, _) =>
         {
             ToggleAlwaysOnTop();
@@ -3054,6 +3224,63 @@ public partial class Form1 : Form, IMessageFilter
         _trackStatus.Text = TopMost ? "Always on top: Enabled" : "Always on top: Disabled";
     }
 
+    private void ToggleMiniPlayer()
+    {
+        if (_isMiniPlayer)
+        {
+            // Exit Mini Player
+            _isMiniPlayer = false;
+            TopMost = false;
+            MinimumSize = new Size(860, 560);
+            if (!_previousNormalSize.IsEmpty)
+            {
+                Size = _previousNormalSize;
+                Location = _previousNormalLocation;
+            }
+            if (_playlistPanel != null)
+            {
+                _playlistPanel.Visible = _isPlaylistVisible;
+            }
+            if (_mainMenu != null)
+            {
+                _mainMenu.Visible = true;
+            }
+            ShowTitleHeader(startTimer: true);
+            _trackStatus.Text = "Standard player mode";
+        }
+        else
+        {
+            // Enter Mini Player
+            if (_isFullScreen)
+            {
+                ExitFullScreen();
+            }
+            _previousNormalSize = Size;
+            _previousNormalLocation = Location;
+            _isMiniPlayer = true;
+
+            if (_playlistPanel != null)
+            {
+                _playlistPanel.Visible = false;
+            }
+            if (_mainMenu != null)
+            {
+                _mainMenu.Visible = false;
+            }
+            HideTitleHeader();
+
+            MinimumSize = new Size(320, 180);
+            int miniWidth = 440;
+            int miniHeight = 270;
+            var workingArea = Screen.FromControl(this).WorkingArea;
+            Size = new Size(miniWidth, miniHeight);
+            Location = new Point(workingArea.Right - miniWidth - 20, workingArea.Bottom - miniHeight - 20);
+            TopMost = true;
+            _trackStatus.Text = "Mini Player (Press I or Esc to exit)";
+        }
+        ApplyAspectRatio();
+    }
+
     [System.Runtime.InteropServices.DllImport("psapi.dll")]
     private static extern int EmptyWorkingSet(IntPtr hwProc);
 
@@ -3080,7 +3307,7 @@ public partial class Form1 : Form, IMessageFilter
     {
         try
         {
-            await Task.Delay(1500);
+            await Task.Delay(2000);
             OptimizeMemory();
         }
         catch { }
@@ -3089,23 +3316,32 @@ public partial class Form1 : Form, IMessageFilter
     private void ShowShortcutsHelp()
     {
         string helpText =
-            "Keyboard Shortcuts:\n\n" +
-            "Space\t\tPlay / Pause\n" +
-            "Left / Right\tSeek Backward / Forward 10s\n" +
-            "Up / Down\tVolume Up / Down 5%\n" +
-            "M\t\tMute / Unmute\n" +
-            "A\t\tCycle Aspect Ratio\n" +
-            "E\t\tToggle Video Quality Enhancer\n" +
-            "Ctrl + U\tOpen Network Stream (YouTube, Twitch, Kick)\n" +
-            "V\t\tToggle Subtitles On / Off\n" +
-            "G / H\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
-            "Ctrl + S\tTake Screenshot\n" +
-            "P\t\tToggle Up Next / Playlist Sidebar\n" +
-            "Ctrl + O\tOpen Media Files\n" +
-            "F / F11\t\tToggle Full Screen\n" +
-            "Esc\t\tExit Full Screen";
+            "Keyboard & Mouse Controls:\n\n" +
+            "Space\t\t\tPlay / Pause\n" +
+            "Left / Right\t\tSeek Backward / Forward 5s\n" +
+            "Ctrl + Left / Right\tSeek Backward / Forward 30s\n" +
+            "PageUp / PageDown\tSeek Forward / Backward 60s\n" +
+            "Backspace\t\tRestart video from 00:00\n" +
+            "Up / Down\t\tVolume Up / Down 5%\n" +
+            "Mouse Wheel (Video)\tVolume Up / Down 5%\n" +
+            "Mouse Wheel (Seekbar)\tSeek Backward / Forward 5s\n" +
+            "Ctrl + Mouse Wheel\tSeek Backward / Forward 10s\n" +
+            "[  /  ]\t\t\tPlayback Speed -0.1x / +0.1x\n" +
+            "\\\t\t\tReset Playback Speed to 1.0x\n" +
+            "I\t\t\tToggle Picture-in-Picture / Mini-Player\n" +
+            "M\t\t\tMute / Unmute\n" +
+            "A\t\t\tCycle Aspect Ratio\n" +
+            "E\t\t\tToggle Video Quality Enhancer\n" +
+            "Ctrl + U\t\tOpen Network Stream (YouTube, Twitch, Kick)\n" +
+            "V\t\t\tToggle Subtitles On / Off\n" +
+            "G / H\t\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
+            "Ctrl + S\t\tTake Screenshot\n" +
+            "P\t\t\tToggle Up Next / Playlist Sidebar\n" +
+            "Ctrl + O\t\tOpen Media Files\n" +
+            "F / F11\t\t\tToggle Full Screen\n" +
+            "Esc\t\t\tExit Full Screen or Mini-Player";
 
-        MessageBox.Show(this, helpText, "Keyboard Shortcuts", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(this, helpText, "Keyboard Shortcuts & Controls", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void ShowAboutDialog()
@@ -3260,6 +3496,49 @@ public static class SubtitleParser
     private static readonly System.Text.RegularExpressions.Regex TagRegex =
         new(@"<[^>]+>|\{[^}]+\}", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    public static System.Text.Encoding DetectEncoding(string filePath)
+    {
+        try
+        {
+            var buffer = new byte[4096];
+            int read;
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                read = fs.Read(buffer, 0, buffer.Length);
+            }
+
+            if (read >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE) return System.Text.Encoding.Unicode;
+            if (read >= 2 && buffer[0] == 0xFE && buffer[1] == 0xFF) return System.Text.Encoding.BigEndianUnicode;
+            if (read >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF) return System.Text.Encoding.UTF8;
+
+            bool isUtf8 = true;
+            int i = 0;
+            while (i < read)
+            {
+                byte b = buffer[i++];
+                if (b <= 0x7F) continue;
+                int extraBytes = 0;
+                if ((b & 0xE0) == 0xC0) extraBytes = 1;
+                else if ((b & 0xF0) == 0xE0) extraBytes = 2;
+                else if ((b & 0xF8) == 0xF0) extraBytes = 3;
+                else { isUtf8 = false; break; }
+
+                if (i + extraBytes > read) break;
+                for (int j = 0; j < extraBytes; j++)
+                {
+                    if ((buffer[i++] & 0xC0) != 0x80) { isUtf8 = false; break; }
+                }
+                if (!isUtf8) break;
+            }
+
+            return isUtf8 ? System.Text.Encoding.UTF8 : System.Text.Encoding.Latin1;
+        }
+        catch
+        {
+            return System.Text.Encoding.UTF8;
+        }
+    }
+
     public static List<SubtitleCue> Parse(string filePath)
     {
         var cues = new List<SubtitleCue>();
@@ -3267,15 +3546,8 @@ public static class SubtitleParser
 
         try
         {
-            string[] lines;
-            try
-            {
-                lines = File.ReadAllLines(filePath, System.Text.Encoding.UTF8);
-            }
-            catch
-            {
-                lines = File.ReadAllLines(filePath);
-            }
+            var encoding = DetectEncoding(filePath);
+            var lines = File.ReadAllLines(filePath, encoding);
 
             var ext = Path.GetExtension(filePath).ToLowerInvariant();
             if (ext == ".ass" || ext == ".ssa")
