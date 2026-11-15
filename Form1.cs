@@ -1014,8 +1014,95 @@ public partial class Form1 : Form, IMessageFilter
             return;
         }
 
-        UpdatePlayState(false, "This format or file could not be played");
-        ShowTitleHeader(startTimer: false);
+        string errMsg = e.ErrorException?.Message ?? string.Empty;
+        string errHResult = e.ErrorException?.HResult.ToString("X8") ?? string.Empty;
+
+        // Detect known codec / format issues and show targeted guidance
+        bool isAudioCodecError =
+            errMsg.Contains("0xC00D36C4", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("0xC00D5212", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("0xC00D36B4", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("codec", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("audio", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("EAC3", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("AC3", StringComparison.OrdinalIgnoreCase) ||
+            errHResult is "C00D36C4" or "C00D5212" or "C00D36B4";
+
+        bool isVideoCodecError =
+            errMsg.Contains("HEVC", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("H265", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("H.265", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("AV1", StringComparison.OrdinalIgnoreCase) ||
+            errMsg.Contains("VP9", StringComparison.OrdinalIgnoreCase);
+
+        string currentFile = _currentIndex >= 0 && _currentIndex < _playlist.Items.Count
+            ? Path.GetFileName((string)_playlist.Items[_currentIndex]!)
+            : string.Empty;
+
+        string? detectedCodec = null;
+        if (!string.IsNullOrEmpty(currentFile))
+        {
+            if (currentFile.Contains("EAC3", StringComparison.OrdinalIgnoreCase) ||
+                currentFile.Contains("DD+", StringComparison.OrdinalIgnoreCase) ||
+                currentFile.Contains("Atmos", StringComparison.OrdinalIgnoreCase) ||
+                currentFile.Contains("DDP", StringComparison.OrdinalIgnoreCase))
+            {
+                detectedCodec = "EAC3 / Dolby Digital Plus (DD+)";
+            }
+            else if (currentFile.Contains("TrueHD", StringComparison.OrdinalIgnoreCase))
+            {
+                detectedCodec = "Dolby TrueHD";
+            }
+            else if (currentFile.Contains("DTS", StringComparison.OrdinalIgnoreCase))
+            {
+                detectedCodec = "DTS / DTS-HD";
+            }
+            else if (currentFile.Contains("HEVC", StringComparison.OrdinalIgnoreCase) ||
+                     currentFile.Contains("x265", StringComparison.OrdinalIgnoreCase))
+            {
+                detectedCodec = "HEVC / H.265 video";
+            }
+            else if (currentFile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
+            {
+                detectedCodec = "AV1 video";
+            }
+        }
+
+        if (isAudioCodecError || isVideoCodecError || detectedCodec != null)
+        {
+            string codec = detectedCodec ?? (isAudioCodecError ? "audio (EAC3/DTS/TrueHD)" : "video (HEVC/AV1)");
+            UpdatePlayState(false, $"Codec missing: {codec}");
+            ShowTitleHeader(startTimer: false);
+
+            var result = MessageBox.Show(this,
+                $"Frame could not play the {codec} track in this file.\n\n" +
+                "The Windows Media Foundation engine built into Windows does not include\n" +
+                "decoders for Dolby Digital Plus (EAC3), DTS, TrueHD, HEVC, or AV1 by default.\n\n" +
+                "⚡ Fix in 1 minute — install K-Lite Codec Pack (free):\n" +
+                "   • Adds EAC3, DTS, TrueHD, Dolby Atmos, HEVC, AV1 decoders\n" +
+                "   • No reboot required — works immediately after install\n" +
+                "   • Completely safe, trusted by 500M+ users\n\n" +
+                "Click YES to open the K-Lite download page in your browser.\n" +
+                "Click NO to continue watching video without audio.",
+                "Missing Audio/Video Codec",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Yes)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                        "https://codecguide.com/download_kl.htm") { UseShellExecute = true });
+                }
+                catch { }
+            }
+        }
+        else
+        {
+            UpdatePlayState(false, "This format or file could not be played");
+            ShowTitleHeader(startTimer: false);
+        }
     }
 
     private void TogglePlayback()
@@ -2529,6 +2616,8 @@ public partial class Form1 : Form, IMessageFilter
         var toolsMenu = new ToolStripMenuItem("&Tools");
         toolsMenu.DropDownItems.Add(new ToolStripMenuItem("Media Information...", null, (_, _) => ShowMediaInformation()));
         toolsMenu.DropDownItems.Add(new ToolStripMenuItem("Open Screenshots Folder", null, (_, _) => OpenScreenshotsFolder()));
+        toolsMenu.DropDownItems.Add(new ToolStripSeparator());
+        toolsMenu.DropDownItems.Add(new ToolStripMenuItem("Fix Missing Audio (EAC3 / DTS / Atmos)...", null, (_, _) => ShowCodecInstallGuide()));
 
         // 7. View
         var viewMenu = new ToolStripMenuItem("&View");
@@ -3632,6 +3721,36 @@ public partial class Form1 : Form, IMessageFilter
             "About Frame",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
+    }
+
+    private void ShowCodecInstallGuide()
+    {
+        var result = MessageBox.Show(this,
+            "Frame uses the Windows Media Foundation engine which does not include\n" +
+            "decoders for the following codecs out of the box:\n\n" +
+            "  Audio:  EAC3 (Dolby Digital Plus / DD+)  •  DTS  •  DTS-HD\n" +
+            "          Dolby TrueHD  •  Dolby Atmos\n" +
+            "  Video:  HEVC / H.265  •  AV1  •  VP9\n\n" +
+            "Installing K-Lite Codec Pack (free, trusted by 500M+ users) adds\n" +
+            "all of the above decoders and fixes audio/video playback immediately.\n\n" +
+            "No reboot required. Works with Frame right after install.\n\n" +
+            "Click YES to open the K-Lite Codec Pack download page.",
+            "Fix Missing Codec — Install K-Lite Codec Pack",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information);
+
+        if (result == DialogResult.Yes)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "https://codecguide.com/download_kl.htm") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Could not open browser: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
     }
 
     private static string GetAspectRatioShortName(AspectRatioMode mode) => mode switch
