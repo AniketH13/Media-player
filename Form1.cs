@@ -978,6 +978,44 @@ public partial class Form1 : Form, IMessageFilter
             }
         }
 
+        // Detect silent audio drop: file contains high-quality audio codec hints
+        // but WMF reports HasAudio=false (EAC3, DTS, TrueHD silently dropped)
+        if (!_mediaElement.HasAudio && _mediaElement.HasVideo && currentPath != null)
+        {
+            string fname = Path.GetFileName(currentPath).ToUpperInvariant();
+            bool looksLikeAudioFile =
+                fname.Contains("EAC3") || fname.Contains("DD+") || fname.Contains("DDP") ||
+                fname.Contains("ATMOS") || fname.Contains("TRUEHD") || fname.Contains("DTS") ||
+                fname.Contains("AC3") || fname.Contains("AAC") || fname.Contains("FLAC");
+
+            string detectedCodec = "EAC3 / Dolby Digital Plus";
+            if (fname.Contains("TRUEHD")) detectedCodec = "Dolby TrueHD";
+            else if (fname.Contains("DTS")) detectedCodec = "DTS / DTS-HD";
+            else if (fname.Contains("ATMOS")) detectedCodec = "Dolby Atmos (EAC3)";
+            else if (looksLikeAudioFile) detectedCodec = "Advanced audio codec (EAC3/DTS/TrueHD)";
+
+            if (looksLikeAudioFile)
+            {
+                // Show inline warning in status bar first (non-blocking)
+                _trackStatus.Text = $"⚠ Audio codec not supported ({detectedCodec}) — Tools → Fix Missing Audio";
+
+                // Then show actionable dialog after a short delay so player UI is settled
+                var timer = new System.Windows.Forms.Timer { Interval = 800 };
+                timer.Tick += (_, _) =>
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    ShowMissingAudioCodecDialog(detectedCodec);
+                };
+                timer.Start();
+            }
+            else
+            {
+                // Generic case: audio track absent but no codec hint from filename
+                _trackStatus.Text = "⚠ No audio — codec may be missing. Tools → Fix Missing Audio";
+            }
+        }
+
         OptimizeMemory();
         TriggerDelayedMemoryOptimization();
     }
@@ -3721,6 +3759,30 @@ public partial class Form1 : Form, IMessageFilter
             "About Frame",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
+    }
+
+    private void ShowMissingAudioCodecDialog(string codecName)
+    {
+        var result = MessageBox.Show(this,
+            $"Audio is missing because this video uses {codecName}.\n\n" +
+            "Windows Media Player and standard Windows components do not include\n" +
+            "Dolby Digital Plus (EAC3) decoders by default.\n\n" +
+            "Would you like to install the free codec pack to enable audio playback for EAC3, DTS, and Atmos?\n\n" +
+            "Click YES to open the download page.\n" +
+            "Click NO to continue without sound.",
+            $"{codecName} Audio Not Supported by Windows",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (result == DialogResult.Yes)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "https://codecguide.com/download_kl.htm") { UseShellExecute = true });
+            }
+            catch { }
+        }
     }
 
     private void ShowCodecInstallGuide()
