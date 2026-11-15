@@ -159,6 +159,17 @@ public partial class Form1 : Form, IMessageFilter
     {
         InitializeComponent();
 
+        try
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                ChangeWindowMessageFilter(WM_DROPFILES, MSGFLT_ADD);
+                ChangeWindowMessageFilter(WM_COPYDATA, MSGFLT_ADD);
+                ChangeWindowMessageFilter(WM_COPYGLOBALDATA, MSGFLT_ADD);
+            }
+        }
+        catch { }
+
         Text = "Frame";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(860, 560);
@@ -225,12 +236,20 @@ public partial class Form1 : Form, IMessageFilter
             e.Handled = true;
         };
         _mediaElement.MouseMove += (s, e) => HandleMediaMouseMove();
+        _mediaElement.AllowDrop = true;
+        _mediaElement.DragEnter += MediaWpf_DragEnter;
+        _mediaElement.DragOver += MediaWpf_DragOver;
+        _mediaElement.Drop += MediaWpf_Drop;
 
         _mediaGrid = new System.Windows.Controls.Grid
         {
-            Background = System.Windows.Media.Brushes.Black
+            Background = System.Windows.Media.Brushes.Black,
+            AllowDrop = true
         };
         _mediaGrid.Children.Add(_mediaElement);
+        _mediaGrid.DragEnter += MediaWpf_DragEnter;
+        _mediaGrid.DragOver += MediaWpf_DragOver;
+        _mediaGrid.Drop += MediaWpf_Drop;
 
         _subtitleText = new System.Windows.Controls.TextBlock
         {
@@ -505,28 +524,8 @@ public partial class Form1 : Form, IMessageFilter
 
         BuildLayout();
 
-        AllowDrop = true;
-        DragEnter += HandleDragEnter;
-        DragDrop += HandleDragDrop;
+        EnableDragDropRecursively(this);
 
-        _elementHost.AllowDrop = true;
-        _elementHost.DragEnter += HandleDragEnter;
-        _elementHost.DragDrop += HandleDragDrop;
-
-        _audioTitle.AllowDrop = true;
-        _audioTitle.DragEnter += HandleDragEnter;
-        _audioTitle.DragDrop += HandleDragDrop;
-
-        _playlist.AllowDrop = true;
-        _playlist.DragEnter += HandleDragEnter;
-        _playlist.DragDrop += HandleDragDrop;
-
-        if (_videoHost != null)
-        {
-            _videoHost.AllowDrop = true;
-            _videoHost.DragEnter += HandleDragEnter;
-            _videoHost.DragDrop += HandleDragDrop;
-        }
         FormClosed += HandleFormClosed;
 
         if (initialFiles != null && initialFiles.Length > 0)
@@ -1607,7 +1606,29 @@ public partial class Form1 : Form, IMessageFilter
         }
     }
 
+    private void EnableDragDropRecursively(Control control)
+    {
+        control.AllowDrop = true;
+        control.DragEnter -= HandleDragEnter;
+        control.DragEnter += HandleDragEnter;
+        control.DragOver -= HandleDragOver;
+        control.DragOver += HandleDragOver;
+        control.DragDrop -= HandleDragDrop;
+        control.DragDrop += HandleDragDrop;
+        foreach (Control child in control.Controls)
+        {
+            EnableDragDropRecursively(child);
+        }
+    }
+
     private void HandleDragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+    }
+
+    private void HandleDragOver(object? sender, DragEventArgs e)
     {
         e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
             ? DragDropEffects.Copy
@@ -1618,10 +1639,83 @@ public partial class Form1 : Form, IMessageFilter
     {
         if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths)
         {
-            var mediaPaths = new List<string>();
-            var subPaths = new List<string>();
+            bool isPlaylistDrop = sender == _playlist;
+            ProcessDroppedFiles(paths, autoPlay: !isPlaylistDrop || _currentIndex < 0);
+        }
+    }
 
-            foreach (var p in paths)
+    private void MediaWpf_DragEnter(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        {
+            e.Effects = System.Windows.DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void MediaWpf_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        {
+            e.Effects = System.Windows.DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void MediaWpf_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is string[] paths)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => ProcessDroppedFiles(paths, autoPlay: true)));
+            }
+            else
+            {
+                ProcessDroppedFiles(paths, autoPlay: true);
+            }
+        }
+        e.Handled = true;
+    }
+
+    private void ProcessDroppedFiles(IEnumerable<string> rawPaths, bool autoPlay = true)
+    {
+        var mediaPaths = new List<string>();
+        var subPaths = new List<string>();
+
+        foreach (var p in rawPaths)
+        {
+            if (Directory.Exists(p))
+            {
+                try
+                {
+                    var files = Directory.EnumerateFiles(p, "*.*", SearchOption.AllDirectories)
+                        .OrderBy(f => f);
+
+                    foreach (var f in files)
+                    {
+                        var ext = Path.GetExtension(f);
+                        if (SubtitleExtensions.Contains(ext))
+                        {
+                            subPaths.Add(f);
+                        }
+                        else if (SupportedExtensions.Contains(ext))
+                        {
+                            mediaPaths.Add(f);
+                        }
+                    }
+                }
+                catch { }
+            }
+            else if (File.Exists(p))
             {
                 var ext = Path.GetExtension(p);
                 if (SubtitleExtensions.Contains(ext))
@@ -1633,24 +1727,36 @@ public partial class Form1 : Form, IMessageFilter
                     mediaPaths.Add(p);
                 }
             }
+        }
 
-            if (subPaths.Count > 0)
+        int targetPlayIndex = -1;
+        if (mediaPaths.Count > 0)
+        {
+            targetPlayIndex = _playlist.Items.Count;
+            foreach (var media in mediaPaths)
             {
-                foreach (var sub in subPaths)
+                _playlist.Items.Add(media);
+            }
+            _emptyPlaylistLabel.Visible = false;
+            _playlistCount.Text = $"{_playlist.Items.Count} {(_playlist.Items.Count == 1 ? "track" : "tracks")}";
+
+            if (autoPlay && targetPlayIndex >= 0)
+            {
+                PlayIndex(targetPlayIndex);
+            }
+        }
+
+        if (subPaths.Count > 0)
+        {
+            foreach (var sub in subPaths)
+            {
+                if (!_availableSubtitles.Contains(sub, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (!_availableSubtitles.Contains(sub, StringComparer.OrdinalIgnoreCase))
-                    {
-                        _availableSubtitles.Insert(0, sub);
-                    }
+                    _availableSubtitles.Insert(0, sub);
                 }
-                LoadSubtitleTrack(0);
-                _trackStatus.Text = $"Subtitle loaded: {Path.GetFileName(subPaths[0])}";
             }
-
-            if (mediaPaths.Count > 0)
-            {
-                AddFiles(mediaPaths);
-            }
+            LoadSubtitleTrack(0);
+            _trackStatus.Text = $"Subtitle loaded: {Path.GetFileName(subPaths[0])}";
         }
     }
 
@@ -3423,6 +3529,13 @@ public partial class Form1 : Form, IMessageFilter
         }
         ApplyAspectRatio();
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ChangeWindowMessageFilter(uint message, uint dwFlag);
+    private const uint WM_DROPFILES = 0x0233;
+    private const uint WM_COPYDATA = 0x004A;
+    private const uint WM_COPYGLOBALDATA = 0x0049;
+    private const uint MSGFLT_ADD = 1;
 
     [System.Runtime.InteropServices.DllImport("psapi.dll")]
     private static extern int EmptyWorkingSet(IntPtr hwProc);
