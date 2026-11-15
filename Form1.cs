@@ -481,7 +481,7 @@ public partial class Form1 : Form, IMessageFilter
         _playlistToggleButton = MakeButton("", PanelColor, Color.FromArgb(212, 216, 226), 36);
         _playlistToggleButton.Paint += PlaylistButton_Paint;
         _playlistToggleButton.Click += (_, _) => TogglePlaylistPanel();
-        _toolTip.SetToolTip(_playlistToggleButton, "Toggle Up next / Playlist (P)");
+        _toolTip.SetToolTip(_playlistToggleButton, "Toggle Up next / Playlist (Ctrl+P)");
 
         _aspectRatioButton = MakeButton("Fit", PanelColor, Color.FromArgb(212, 216, 226), 42);
         _aspectRatioButton.Click += (_, _) => CycleAspectRatio();
@@ -1298,7 +1298,17 @@ public partial class Form1 : Form, IMessageFilter
             ToggleMute();
             return true;
         }
-        if (keyData == Keys.P)
+        if (keyData == Keys.N && !(ActiveControl is TextBoxBase))
+        {
+            PlayIndex(_currentIndex + 1);
+            return true;
+        }
+        if (keyData == Keys.P && !(ActiveControl is TextBoxBase))
+        {
+            PlayIndex(_currentIndex - 1);
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.P))
         {
             TogglePlaylistPanel();
             return true;
@@ -2315,7 +2325,7 @@ public partial class Form1 : Form, IMessageFilter
         _videoContextMenu.Items.Add(_contextSubtitleMenu);
 
         _videoContextMenu.Items.Add(new ToolStripSeparator());
-        _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Up next / Playlist (P)", null, (_, _) => TogglePlaylistPanel()));
+        _videoContextMenu.Items.Add(new ToolStripMenuItem("Toggle Up next / Playlist (Ctrl+P)", null, (_, _) => TogglePlaylistPanel()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Picture-in-Picture / Mini Player (I)", null, (_, _) => ToggleMiniPlayer()));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Open Network Stream...", null, (_, _) => OpenNetworkStream(), Keys.Control | Keys.U));
         _videoContextMenu.Items.Add(new ToolStripMenuItem("Take Screenshot (Ctrl + S)", null, (_, _) => TakeScreenshot()));
@@ -2376,8 +2386,16 @@ public partial class Form1 : Form, IMessageFilter
         };
         playbackMenu.DropDownItems.Add(playItem);
         playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Stop", null, (_, _) => StopPlayback()));
-        playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Previous", null, (_, _) => PlayIndex(_currentIndex - 1)));
-        playbackMenu.DropDownItems.Add(new ToolStripMenuItem("Next", null, (_, _) => PlayIndex(_currentIndex + 1)));
+        var prevItem = new ToolStripMenuItem("Previous", null, (_, _) => PlayIndex(_currentIndex - 1))
+        {
+            ShortcutKeyDisplayString = "P"
+        };
+        playbackMenu.DropDownItems.Add(prevItem);
+        var nextItem = new ToolStripMenuItem("Next", null, (_, _) => PlayIndex(_currentIndex + 1))
+        {
+            ShortcutKeyDisplayString = "N"
+        };
+        playbackMenu.DropDownItems.Add(nextItem);
         playbackMenu.DropDownItems.Add(new ToolStripSeparator());
         var jumpFwd = new ToolStripMenuItem("Jump Forward 10s", null, (_, _) => SeekRelative(10))
         {
@@ -3585,6 +3603,8 @@ public partial class Form1 : Form, IMessageFilter
             "[  /  ]\t\t\tPlayback Speed -0.1x / +0.1x\n" +
             "\\\t\t\tReset Playback Speed to 1.0x\n" +
             "I\t\t\tToggle Picture-in-Picture / Mini-Player\n" +
+            "N\t\t\tNext Video\n" +
+            "P\t\t\tPrevious Video\n" +
             "M\t\t\tMute / Unmute\n" +
             "A\t\t\tCycle Aspect Ratio\n" +
             "E\t\t\tToggle Video Quality Enhancer\n" +
@@ -3593,7 +3613,7 @@ public partial class Form1 : Form, IMessageFilter
             "V\t\t\tToggle Subtitles On / Off\n" +
             "G / H\t\t\tSubtitle Delay -0.1s / Advance +0.1s\n" +
             "Ctrl + S\t\tTake Screenshot\n" +
-            "P\t\t\tToggle Up Next / Playlist Sidebar\n" +
+            "Ctrl + P\t\tToggle Up Next / Playlist Sidebar\n" +
             "Ctrl + O\t\tOpen Media Files\n" +
             "F / F11\t\t\tToggle Full Screen\n" +
             "Esc\t\t\tExit Full Screen or Mini-Player";
