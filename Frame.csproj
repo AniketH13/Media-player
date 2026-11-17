@@ -23,6 +23,7 @@
     <TieredCompilation>true</TieredCompilation>
     <TieredPGO>true</TieredPGO>
     <GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>
+    <NoWarn>$(NoWarn);MSB3246</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +33,11 @@
     <Content Include="app.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FFmpeg.zgabi.FFME.Windows.6.0.2" Version="1.0.13" />
+    <PackageReference Include="zgabi.FFME.Windows" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

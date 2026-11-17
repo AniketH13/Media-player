@@ -14,6 +14,17 @@ static class Program
     {
         try
         {
+            // Stage 1: Initialize native FFmpeg engine foundation
+            try
+            {
+                Unosquare.FFME.Library.FFmpegDirectory = AppContext.BaseDirectory;
+                Unosquare.FFME.Library.LoadFFmpeg();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"FFmpeg initialization notice: {ex.Message}");
+            }
+
             ApplicationConfiguration.Initialize();
             Application.Run(new Form1(args));
         }
