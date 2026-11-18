@@ -925,6 +925,12 @@ public partial class Form1 : Form, IMessageFilter
 
     private void MediaElement_MediaOpening(object? sender, Unosquare.FFME.Common.MediaOpeningEventArgs e)
     {
+        try
+        {
+            // Optimize playback buffering for ultra-fast startup and smooth seeking
+            e.Options.MinimumPlaybackBufferPercent = 0.2;
+        }
+        catch { }
     }
 
     private void MediaElement_MediaOpened(object? sender, EventArgs e)

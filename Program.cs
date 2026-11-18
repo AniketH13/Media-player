@@ -18,6 +18,7 @@ static class Program
             try
             {
                 Unosquare.FFME.Library.FFmpegDirectory = AppContext.BaseDirectory;
+                Unosquare.FFME.Library.EnableWpfMultiThreadedVideo = true;
                 Unosquare.FFME.Library.LoadFFmpeg();
             }
             catch (Exception ex)
